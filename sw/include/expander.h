@@ -1,9 +1,7 @@
 #ifndef EXPANDER_H
 #define EXPANDER_H
 
-#include <Wire.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
+#include <Arduino.h>
 
 class EXPANDER {
 public:
@@ -29,7 +27,7 @@ private:
     uint8_t gpioAddr;    // 23017 I2C address
     uint8_t switchStack[8];  // Stack for push/pop channel switching
     uint8_t switchStackIndex;  // Current stack index for the switch state
-    SemaphoreHandle_t i2cSemaphore;  // Semaphore for protecting I2C communication
+    uint8_t currentChannel;
 
     void beginI2C();
 };

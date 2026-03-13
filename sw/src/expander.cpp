@@ -1,20 +1,17 @@
 #include "expander.h"
-#include <Wire.h>
+#include "task_safe_wire.h"
 
 #define SWITCH_I2C_ADDR 0x70  // Example address for the 9548 switch
 #define GPIO_I2C_ADDR 0x20    // Example address for the 23017 GPIO expander
 
 // Constructor
 EXPANDER::EXPANDER(uint8_t switchAddr, uint8_t gpioAddr)
-    : switchAddr(switchAddr), gpioAddr(gpioAddr), switchStackIndex(0) {
-    // Initialize the semaphore with 1 (binary semaphore)
-    i2cSemaphore = xSemaphoreCreateBinary();
-    xSemaphoreGive(i2cSemaphore); // Initially available
+    : switchAddr(switchAddr), gpioAddr(gpioAddr), switchStackIndex(0), currentChannel(0) {
 }
 
 // Private method to handle I2C initialization
 void EXPANDER::beginI2C() {
-    Wire.begin();
+    task_safe_wire_init();
 }
 
 // Initialize the 9548 switch to default channel (0)
@@ -26,20 +23,17 @@ void EXPANDER::initSwitch() {
 // Set the channel for the 9548 switch (0-7)
 void EXPANDER::setChannel(uint8_t channel) {
     if (channel > 7) return;  // Validate channel
-    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);  // Take the semaphore for I2C transaction
-
-    Wire.beginTransmission(switchAddr);
-    Wire.write(1 << channel);  // Write the corresponding channel
-    Wire.endTransmission();
-
-    xSemaphoreGive(i2cSemaphore);  // Release semaphore after transaction
+    task_safe_wire_begin(switchAddr);
+    task_safe_wire_write(1 << channel);  // Write the corresponding channel
+    task_safe_wire_end();
+    currentChannel = channel;
 }
 
 // Push the current channel onto the stack and switch to the new channel
 void EXPANDER::pushChannel(uint8_t channel) {
     if (switchStackIndex < 8) {
         // Save the current channel (in case pop is called)
-        switchStack[switchStackIndex++] = Wire.read();  // Read current channel before changing
+        switchStack[switchStackIndex++] = currentChannel;
         setChannel(channel);  // Set the new channel
     }
 }
@@ -68,47 +62,47 @@ void EXPANDER::initGPIO() {
 // Set GPIO pin mode to input or output
 void EXPANDER::setGPIOPinMode(uint8_t pin, bool input) {
     pushChannel(0);  // Switch to channel 0 to communicate with MCP23017
-    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);
-    Wire.beginTransmission(gpioAddr);
-    Wire.write(0x00 + (pin / 8));  // IODIRA or IODIRB register
+    task_safe_wire_begin(gpioAddr);
+    task_safe_wire_write(0x00 + (pin / 8));  // IODIRA or IODIRB register
+    task_safe_wire_restart();
     uint8_t mask = 1 << (pin % 8);
     uint8_t currentMode;
-    Wire.requestFrom(gpioAddr, (uint8_t)1);
-    currentMode = Wire.read();
+    task_safe_wire_request_from(gpioAddr, (uint8_t)1);
+    currentMode = task_safe_wire_read();
+    task_safe_wire_end();
+
+    task_safe_wire_begin(gpioAddr);
+    task_safe_wire_write(0x00 + (pin / 8));
     if (input) {
         currentMode |= mask;  // Set bit for input
     } else {
         currentMode &= ~mask; // Clear bit for output
     }
-    Wire.write(currentMode);
-    Wire.endTransmission();
-    xSemaphoreGive(i2cSemaphore);
+    task_safe_wire_write(currentMode);
+    task_safe_wire_end();
     popChannel();  // Return to the previous channel
 }
 
 // Write high/low to a GPIO pin
 void EXPANDER::writeGPIO(uint8_t pin, bool value) {
     pushChannel(0);  // Switch to channel 0 to communicate with MCP23017
-    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);
-    Wire.beginTransmission(gpioAddr);
-    Wire.write(0x14 + (pin / 8));  // OLATA or OLATB register
+    task_safe_wire_begin(gpioAddr);
+    task_safe_wire_write(0x14 + (pin / 8));  // OLATA or OLATB register
     uint8_t mask = 1 << (pin % 8);
-    Wire.write(value ? mask : 0x00);
-    Wire.endTransmission();
-    xSemaphoreGive(i2cSemaphore);
+    task_safe_wire_write(value ? mask : 0x00);
+    task_safe_wire_end();
     popChannel();  // Return to the previous channel
 }
 
 // Read the state of a GPIO pin
 bool EXPANDER::readGPIO(uint8_t pin) {
     pushChannel(0);  // Switch to channel 0 to communicate with MCP23017
-    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);
-    Wire.beginTransmission(gpioAddr);
-    Wire.write(0x12 + (pin / 8));  // GPIOA or GPIOB register
-    Wire.endTransmission();
-    Wire.requestFrom(gpioAddr, (uint8_t)1);
-    uint8_t pinState = Wire.read();
-    xSemaphoreGive(i2cSemaphore);
+    task_safe_wire_begin(gpioAddr);
+    task_safe_wire_write(0x12 + (pin / 8));  // GPIOA or GPIOB register
+    task_safe_wire_restart();
+    task_safe_wire_request_from(gpioAddr, (uint8_t)1);
+    uint8_t pinState = task_safe_wire_read();
+    task_safe_wire_end();
     popChannel();  // Return to the previous channel
     return (pinState & (1 << (pin % 8))) != 0;
 }

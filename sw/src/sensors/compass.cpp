@@ -3,6 +3,7 @@
 #include <Adafruit_HMC5883_U.h>
 #include <variables/setget.h>
 #include <freertos/FreeRTOS.h>
+#include <task_safe_wire.h>
 #include <sensors/compass.h>
 #include <sensors/kalman_filter.h>
 
@@ -23,7 +24,9 @@ static void compass_task(void *pvParameters)
   for (;;)
   {
     sensors_event_t event;
+    task_safe_wire_lock();
     mag.getEvent(&event);
+    task_safe_wire_unlock();
 
     float magx = event.magnetic.x;
     float magy = event.magnetic.y;
@@ -48,13 +51,16 @@ void Compass::Begin()
   globalVar_set(rawMagX, 0);
   globalVar_set(rawMagY, 0);
   globalVar_set(rawMagZ, 0);
-  Wire.begin();
+  task_safe_wire_init();
   
+  task_safe_wire_lock();
   if (!mag.begin())
   {
+    task_safe_wire_unlock();
     Serial.println("Failed to initialize HMC5883 sensor!");
     while (1);
   }
+  task_safe_wire_unlock();
 
   Serial.println("Starting Compass");
   xTaskCreate(
@@ -72,7 +78,9 @@ void Compass::Begin()
 void displaySensorDetails(void)
 {
   sensor_t sensor;
+  task_safe_wire_lock();
   mag.getSensor(&sensor);
+  task_safe_wire_unlock();
   Serial.println("------------------------------------");
   Serial.print("Sensor:       ");
   Serial.println(sensor.name);

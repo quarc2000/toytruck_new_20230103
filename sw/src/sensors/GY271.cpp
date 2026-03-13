@@ -1,5 +1,6 @@
 #include <sensors/GY271.h>
 #include <math.h>
+#include <task_safe_wire.h>
 
 #define PI 3.14159265358979323846  // Define PI manually
 
@@ -8,20 +9,19 @@ GY271::GY271(uint8_t address) : _address(address), _x(0), _y(0), _z(0) {
 }
 
 bool GY271::begin() {
-    // Initialize the I2C communication
-    Wire.begin();
+    task_safe_wire_init();
   
     // Set the sensor to continuous measurement mode
-    Wire.beginTransmission(_address);
-    Wire.write(0x09);  // Register for mode configuration
-    Wire.write(0x1D);  // Continuous measurement mode
-    Wire.endTransmission();
+    task_safe_wire_begin(_address);
+    task_safe_wire_write(0x09);  // Register for mode configuration
+    task_safe_wire_write(0x1D);  // Continuous measurement mode
+    task_safe_wire_end();
 
         // Set to 2 Gauss sensitivity
-        Wire.beginTransmission(_address);
-        Wire.write(0x09);  // Control register
-        Wire.write(0x01);  // Set to 2 Gauss sensitivity
-        Wire.endTransmission();
+        task_safe_wire_begin(_address);
+        task_safe_wire_write(0x09);  // Control register
+        task_safe_wire_write(0x01);  // Set to 2 Gauss sensitivity
+        task_safe_wire_end();
 
     delay(100);  // Wait for the sensor to initialize
 
@@ -52,20 +52,21 @@ int16_t GY271::getZ() {
 
 void GY271::updateData() {
     // Request the data starting from register 0x00 (the data output register)
-    Wire.beginTransmission(_address);
-    Wire.write(0x00);  // Register address for data output
-    Wire.endTransmission();
+    task_safe_wire_begin(_address);
+    task_safe_wire_write(0x00);  // Register address for data output
+    task_safe_wire_restart();
     
     // Request 6 bytes of data (3 values: X, Y, Z)
-    Wire.requestFrom(_address, 6);
+    task_safe_wire_request_from(_address, 6);
     
-    if (Wire.available() == 6) {
-        _x = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for X
-        _y = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for Y
-        _z = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for Z
+    if (task_safe_wire_available() == 6) {
+        _x = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for X
+        _y = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Y
+        _z = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Z
     } else {
         //Serial.println("Error reading sensor data!");
     }
+    task_safe_wire_end();
 }
 
 #include <math.h>
