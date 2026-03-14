@@ -101,7 +101,6 @@ void ACCsensor::Begin()
     vTaskDelay(pdMS_TO_TICKS(200));
     //We need to store the zero values avergaes
     long n = 0;
-    long tmp_AcX;
     for(int i = 1;i< 50;i++){
     task_safe_wire_begin(MPU6050_ADDR);
     task_safe_wire_write(0x3B); // starting with register 0x3B (ACCEL_XOUT_H)

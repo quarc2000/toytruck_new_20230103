@@ -122,8 +122,8 @@ static void TriggerTask(void *params)
         if (active_sensors > 0)
         {
             int next_sensor;
-            uint8_t trig_pin;
-            uint8_t echo_pin;
+            uint8_t trig_pin = 0;
+            uint8_t echo_pin = 0;
             VarNames timeout_name = rawDistFront;
             bool emit_timeout = false;
 

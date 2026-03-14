@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <math.h>
  
 #define MPU_ADDR 0x68   // I2C address for the MPU6050
  
@@ -133,10 +134,10 @@ void loop() {
   float ax = getCalibratedAccelX();
   tot += ax;
   Serial.print("Calibrated Accel X: ");
-  Serial.print(round(ax));
+  Serial.print(lroundf(ax));
 
   Serial.print("   avg: ");
-  Serial.println(round(tot/i));
+  Serial.println(lroundf((float)tot / i));
   delay(500);
   }
 }
