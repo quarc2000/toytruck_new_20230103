@@ -19,6 +19,7 @@ hw/*
 *.a
 *.yml
 */.platformio-local/*
+*/.pio-build/*
 
 #Kicad backups and work files
 hw/pcb-kicad/atmt-kcad/atmt-kcad-backups/*.zip

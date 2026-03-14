@@ -1,7 +1,7 @@
 # Task
 
 ## Active Task
-Clean up the active firmware codebase and PlatformIO environment set so new development proceeds on a smaller, current, and defensible baseline instead of on top of merged residue, stale build targets, and warning-heavy code.
+Formalize the shared variable model used by `setget` so variable names, units, meaning, and future fusion outputs are explicit and stable enough to support navigation, planning, and later sensor fusion without guesswork.
 
 ## Completed In This Task
 - Previous board-analysis task completed with initial board resource files for the TOY controller board and IO expander.
@@ -19,21 +19,24 @@ Clean up the active firmware codebase and PlatformIO environment set so new deve
 - Reduced the active PlatformIO environment set by removing stale or merged-residue build targets such as `light`, `logger`, `compass`, and `real_main`.
 - Recorded that `src/actuators/light.cpp` was deleted because it does not match the active truck hardware path.
 - Confirmed that after pruning the stale environments, the remaining active build failures are dominated by the intermittent archive rename permission issue plus a defined set of code warnings in active modules.
+- Cleaned the active build set, stabilized sandboxed PlatformIO builds with the archive-retry workaround, confined direct `Wire` usage to `src/task_safe_wire.cpp`, and cleaned the active warning reports.
 
 ## Task Plan
-1. Keep the active PlatformIO environments limited to current, intentional truck firmware paths.
-2. Remove or isolate merged residue and stale source paths from active builds without deleting potentially reusable code unless the user confirms removal.
-3. Clean the current warning clusters in active code paths, starting with `setget.cpp`, `accsensor.cpp`, `accsensorkalman.cpp`, `usensor.cpp`, `GY271.cpp`, and `z_main_accsensorcalibration.cpp`.
-4. Rebuild the active environments after each cleanup increment to separate real code issues from the intermittent archive rename sandbox fault.
-5. Defer non-current subsystems such as logger redesign and mapping expansion to `BACKLOG.md` until the active codebase is cleaner.
+1. Inventory the current `setget` variables and capture what each one is supposed to mean today, including unit, sign convention, and whether it is configuration-dependent.
+2. Formalize the variable taxonomy so the naming tiers such as `raw`, `calc`, and future `fuse` variables are explicit and consistently defined.
+3. Identify variables whose units or meaning are currently uncertain because of sensor configuration, scaling, or historical drift, and mark those for correction rather than silently trusting old comments.
+4. Create a standalone variable reference document under `docs/` that lists the shared variables, their meaning, units, source, and how they are encoded in the current 32-bit `long` transport model.
+5. Define the first fusion-variable concept set, including examples such as `fuseForwardClear`, and outline the likely fusion package and task responsibilities.
+6. Produce a reusable prompt for generating a clear visual illustration of the truck data structures and variable flows.
 
 ## Definition Of Done
-- The active build set reflects current truck code paths only.
-- The main visible warnings in active code have been reduced or documented with intent.
-- The repository is in a cleaner state for continued feature work without relying on stale merged code paths.
+- The shared variable model has a clear naming and unit convention that another programmer or agent can follow without guessing.
+- Existing `setget` variables have documented meaning and unit intent, with uncertainties called out explicitly where sensor configuration still affects interpretation.
+- A standalone document under `docs/` exists with the current shared variable definitions, units, source, and encoding notes.
+- The future `fuse*` layer has an agreed conceptual place in the architecture.
+- A reusable illustration prompt exists for visualizing the truck data structures and variable flows.
 
 ## Immediate Next Actions
-- Update planning context so cleanup is the active task and mapping is explicitly paused.
-- Keep the paused task-safety validation work in `BACKLOG.md` unless the user reactivates it.
-- Use the latest post-prune build sweep as the baseline for the next cleanup pass.
-- Start fixing the active warning clusters one file group at a time.
+- Review `include/variables/setget.h` and related code to inventory the current variable set and the existing partial unit comments.
+- Convert the current cleanup state into baseline assumptions for the new variable-management task.
+- Start a first formal variable-model note under `docs/` that can later drive both implementation cleanup and the illustration prompt.

@@ -1,5 +1,5 @@
-#include <Wire.h>
 #include <Arduino.h>
+#include <task_safe_wire.h>
 
 #define MCP23017_ADDR 0x20 // Default I2C address for MCP23017
 #define TCA9548_ADDR 0x70  // I2C address for TCA9548 (multiplexer)
@@ -41,9 +41,9 @@ void selectPCA9548Channel(uint8_t channel)
   // Construct the command byte. We are enabling only the specified channel.
   uint8_t command = 1 << channel; // Left shift 1 by 'channel' bits (e.g., for channel 0, command = 0x01)
 
-  Wire.beginTransmission(TCA9548_ADDR); // Start communication with PCA9548
-  Wire.write(command);                  // Send the command byte to select the channel
-  Wire.endTransmission();               // End transmission
+  task_safe_wire_begin(TCA9548_ADDR); // Start communication with PCA9548
+  task_safe_wire_write(command);       // Send the command byte to select the channel
+  task_safe_wire_end();                // End transmission
 
   Serial.print("Selected channel: ");
   Serial.println(channel);
@@ -51,23 +51,23 @@ void selectPCA9548Channel(uint8_t channel)
 
 void initVL53L0x(uint8_t channel) {
   selectPCA9548Channel(channel);
-  Wire.beginTransmission(VL53L0X_ADDR);
-  Wire.write(0x80);  // Write to system initialization register
-  Wire.write(0x01);  // Set bit 0 to 1 to initialize
-  Wire.endTransmission();
+  task_safe_wire_begin(VL53L0X_ADDR);
+  task_safe_wire_write(0x80);  // Write to system initialization register
+  task_safe_wire_write(0x01);  // Set bit 0 to 1 to initialize
+  task_safe_wire_end();
   delay(10);
 
     // Set measurement timing budget (e.g., 20ms)
-    Wire.beginTransmission(VL53L0X_ADDR);
-    Wire.write(0x04);  // Timing Budget register
-    Wire.write(0x0A);  // Set to 20ms
-    Wire.endTransmission();
+    task_safe_wire_begin(VL53L0X_ADDR);
+    task_safe_wire_write(0x04);  // Timing Budget register
+    task_safe_wire_write(0x0A);  // Set to 20ms
+    task_safe_wire_end();
   
     // Set inter-measurement period (e.g., 50ms)
-    Wire.beginTransmission(VL53L0X_ADDR);
-    Wire.write(0x03);  // Inter-Measurement Period register
-    Wire.write(0x32);  // Set to 50ms
-    Wire.endTransmission();
+    task_safe_wire_begin(VL53L0X_ADDR);
+    task_safe_wire_write(0x03);  // Inter-Measurement Period register
+    task_safe_wire_write(0x32);  // Set to 50ms
+    task_safe_wire_end();
   
     delay(10);  // Wait for settings to take effect
   selectPCA9548Channel(0);
@@ -78,14 +78,14 @@ void initVL53L0x(uint8_t channel) {
 uint16_t readVL53L0XDistance(uint8_t channel) {
   selectPCA9548Channel(channel);
   uint16_t distance = 0;
-  Wire.beginTransmission(VL53L0X_ADDR);
-  Wire.write(0x01); // Command to read distance
-  Wire.endTransmission();
-  Wire.requestFrom(VL53L0X_ADDR, 2);
-  if (Wire.available() == 2) {
-    distance = Wire.read() << 8;
-    distance |= Wire.read();
+  task_safe_wire_begin(VL53L0X_ADDR);
+  task_safe_wire_write(0x01); // Command to read distance
+  task_safe_wire_restart();
+  if (task_safe_wire_request_from(VL53L0X_ADDR, 2) == 2) {
+    distance = task_safe_wire_read() << 8;
+    distance |= task_safe_wire_read();
   }
+  task_safe_wire_end();
   selectPCA9548Channel(0);
   return distance;
 }
@@ -102,22 +102,22 @@ void setPWMFrequency(float frequency)
   prescaleValue = floor(prescale + 0.5); // Round to the nearest integer
 
   // Step 1: Enter Sleep Mode by setting SLEEP bit to 1
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(MODE1_REG); // Write to the Mode1 register
-  Wire.write(0x10);      // Set SLEEP bit to 1 to enter sleep mode temporarily
-  Wire.endTransmission();
+  task_safe_wire_begin(PCA9685_ADDR);
+  task_safe_wire_write(MODE1_REG); // Write to the Mode1 register
+  task_safe_wire_write(0x10);      // Set SLEEP bit to 1 to enter sleep mode temporarily
+  task_safe_wire_end();
 
   // Step 2: Set the prescale register to configure the frequency
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(PRESCALE_REG);  // Write to the prescale register
-  Wire.write(prescaleValue); // Write the calculated prescale value
-  Wire.endTransmission();
+  task_safe_wire_begin(PCA9685_ADDR);
+  task_safe_wire_write(PRESCALE_REG);  // Write to the prescale register
+  task_safe_wire_write(prescaleValue); // Write the calculated prescale value
+  task_safe_wire_end();
 
   // Step 3: Wake up the PCA9685 by setting the SLEEP bit back to 0
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(MODE1_REG); // Write to the Mode1 register
-  Wire.write(0x80);      // Wake up the chip (set SLEEP bit to 0) and restart oscillator
-  Wire.endTransmission();
+  task_safe_wire_begin(PCA9685_ADDR);
+  task_safe_wire_write(MODE1_REG); // Write to the Mode1 register
+  task_safe_wire_write(0x80);      // Wake up the chip (set SLEEP bit to 0) and restart oscillator
+  task_safe_wire_end();
 }
 
 // Function to set the pulse width (servo position) for a channel
@@ -131,22 +131,22 @@ void setServoPulse(uint8_t channel, float pulseWidth)
   uint8_t offHigh = (pulse >> 8) & 0xFF; // Set OFF time high byte
 
   // Set the ON time for the channel (always 0)
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(LED0_ON_L_REG + 4 * channel); // LED channel start at 0x06 for channel 0
-  Wire.write(onLow);
-  Wire.write(0); // ON High is always 0
-  Wire.write(offLow);
-  Wire.write(offHigh);
-  Wire.endTransmission();
+  task_safe_wire_begin(PCA9685_ADDR);
+  task_safe_wire_write(LED0_ON_L_REG + 4 * channel); // LED channel start at 0x06 for channel 0
+  task_safe_wire_write(onLow);
+  task_safe_wire_write(0); // ON High is always 0
+  task_safe_wire_write(offLow);
+  task_safe_wire_write(offHigh);
+  task_safe_wire_end();
 }
 
 // Write a value to the specified MCP23017 register
 void mcp23017_write_register(uint8_t reg, uint8_t value)
 {
-  Wire.beginTransmission(MCP23017_ADDR);
-  Wire.write(reg);   // Register address
-  Wire.write(value); // Data to write
-  Wire.endTransmission();
+  task_safe_wire_begin(MCP23017_ADDR);
+  task_safe_wire_write(reg);   // Register address
+  task_safe_wire_write(value); // Data to write
+  task_safe_wire_end();
 }
 
 // Initialize the MCP23017
@@ -164,14 +164,13 @@ void mcp23017_init()
 void check_mcp23017_health()
 {
   // Read the IODIRA register
-  Wire.beginTransmission(MCP23017_ADDR);
-  Wire.write(IODIRA); // Send register address (IODIRA)
-  Wire.endTransmission();
+  task_safe_wire_begin(MCP23017_ADDR);
+  task_safe_wire_write(IODIRA); // Send register address (IODIRA)
+  task_safe_wire_restart();
 
-  Wire.requestFrom(MCP23017_ADDR, 1); // Request 1 byte of data
-  if (Wire.available())
+  if (task_safe_wire_request_from(MCP23017_ADDR, 1) == 1)
   {
-    uint8_t value = Wire.read(); // Read the value from the register
+    uint8_t value = task_safe_wire_read(); // Read the value from the register
     Serial.print("IODIRA register value: 0x");
     Serial.println(value, HEX);
   }
@@ -179,6 +178,7 @@ void check_mcp23017_health()
   {
     Serial.println("Failed to read from MCP23017.");
   }
+  task_safe_wire_end();
 }
 
 // Write a value to the GPIOA register to control the pins
@@ -190,10 +190,9 @@ void mcp23017_write_GPIOA(uint8_t value)
 void setup()
 {
   Serial.begin(57600); // Start serial communication
-  Wire.begin();        // Initialize I2C communication
   // Test connection with TCA9548 (I2C multiplexer)
-  Wire.beginTransmission(TCA9548_ADDR);
-  byte error = Wire.endTransmission(); // Check if the TCA9548 is responding
+  task_safe_wire_begin(TCA9548_ADDR);
+  byte error = task_safe_wire_end(); // Check if the TCA9548 is responding
   if (error != 0)
   {
     Serial.print("TCA9548 I2C Communication Error: ");
@@ -205,20 +204,22 @@ void setup()
   selectPCA9548Channel(0);
 
   // Test connection with PCA9685 (reading MODE1 register)
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(MODE1);              // Write the MODE1 register to read it
-  error = Wire.endTransmission(); // Check if the I2C communication went through
+  task_safe_wire_begin(PCA9685_ADDR);
+  task_safe_wire_write(MODE1);    // Write the MODE1 register to read it
+  task_safe_wire_restart();
+  uint8_t mode1Count = task_safe_wire_request_from(PCA9685_ADDR, 1);
+  error = mode1Count == 1 ? 0 : 1;
   if (error != 0)
   {
     Serial.print("PCA9685 I2C Communication Error: ");
     Serial.println(error);
+    task_safe_wire_end();
     return;
   }
 
-  Wire.requestFrom(PCA9685_ADDR, 1); // Request 1 byte from the MODE1 register
-  if (Wire.available())
+  if (mode1Count == 1)
   {
-    byte mode1Value = Wire.read(); // Read the value of the MODE1 register
+    byte mode1Value = task_safe_wire_read(); // Read the value of the MODE1 register
     Serial.print("MODE1 Register: 0x");
     Serial.println(mode1Value, HEX);
 
@@ -236,6 +237,7 @@ void setup()
   {
     Serial.println("Failed to read MODE1 register.");
   }
+  task_safe_wire_end();
 
   // Step 1: Enable oscillator (OSCON bit) by setting SLEEP bit to 1 temporarily
   // This is done in the setPWMFrequency function (via sleep mode and waking it up)

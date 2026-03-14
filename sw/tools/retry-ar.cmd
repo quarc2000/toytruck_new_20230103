@@ -1,12 +1,14 @@
 @echo off
 setlocal
 
+set TOOL=%~1
+shift
 set RETRIES=5
 set DELAY=2
 set COUNT=0
 
 :retry
-xtensa-esp32-elf-ar.exe %*
+"%TOOL%" %*
 if %ERRORLEVEL%==0 exit /b 0
 
 set /a COUNT+=1

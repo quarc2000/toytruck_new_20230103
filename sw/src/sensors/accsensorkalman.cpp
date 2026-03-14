@@ -1,6 +1,5 @@
 #include <sensors/accsensor.h>
 #include <Arduino.h>
-#include <Wire.h>
 #include <task_safe_wire.h>
 #include <variables/setget.h>
 #include <freertos/FreeRTOS.h>

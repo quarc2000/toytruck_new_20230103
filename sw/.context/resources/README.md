@@ -18,3 +18,4 @@ This directory is the configured MCP resource root for local development.
 ## Project Resources
 
 - `CONTROLLER_BOARD.md` for the bespoke truck controller board documentation.
+- `AGENTS_AND_PLATFORMIO.md` for the repo-local PlatformIO setup, sandbox build workaround, and the expected build workflow for future agents.

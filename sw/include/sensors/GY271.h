@@ -1,7 +1,7 @@
 #ifndef GY271_H
 #define GY271_H
 
-#include <Wire.h>
+#include <Arduino.h>
 
 class GY271 {
 public:

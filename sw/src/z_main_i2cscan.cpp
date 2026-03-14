@@ -1,9 +1,8 @@
 #include <Arduino.h>
-#include <Wire.h>
+#include <task_safe_wire.h>
 
 void setup() {
   Serial.begin(57600);
-  Wire.begin();
 
   Serial.println("Scanning for I2C devices...");
 
@@ -11,8 +10,8 @@ void setup() {
   int nDevices = 0;
 
   for (address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
+    task_safe_wire_begin(address);
+    error = task_safe_wire_end();
 
     if (error == 0) {
       Serial.print("I2C device found at address 0x");

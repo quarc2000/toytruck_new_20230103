@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <Wire.h>
 #include <expander.h>
 
 // Create an I2CDevices object with appropriate I2C addresses
@@ -7,7 +6,6 @@ EXPANDER i2cDevice(0x70, 0x20);  // Adjust I2C addresses as needed
 
 void setup() {
   Serial.begin(57600);
-  Wire.begin();  // Initialize Wire
 
   // Initialize the 9548 switch and GPIO expander
   i2cDevice.initSwitch();

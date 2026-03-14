@@ -1,6 +1,7 @@
 param(
-    [string[]]$ConfigFiles = @("platformio.ini", "platformio_optional.ini"),
-    [string]$Timestamp = "2026-03-14-resweep2"
+    [string[]]$ConfigFiles = @("platformio.ini"),
+    [string]$Timestamp = "2026-03-14-sweep",
+    [string[]]$ExcludeEnvs = @("driver")
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,11 +17,11 @@ $envs = foreach ($file in $files) {
         $_.Matches[0].Groups[1].Value
     }
 }
-$envs = $envs | Select-Object -Unique
+$envs = $envs | Select-Object -Unique | Where-Object { $_ -notin $ExcludeEnvs }
 
 $summary = @()
 foreach ($envName in $envs) {
-    cmd /c "rmdir /s /q .pio\build\$envName" | Out-Null
+    cmd /c "rmdir /s /q .pio-build\$envName" | Out-Null
 
     $stdout = Join-Path $reportDir ($Timestamp + "-" + $envName + ".stdout.log")
     $stderr = Join-Path $reportDir ($Timestamp + "-" + $envName + ".stderr.log")
@@ -43,9 +44,16 @@ foreach ($envName in $envs) {
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr
 
-    $matches = Select-String -Path $stdout, $stderr `
-        -Pattern "fatal error:|error:|Permission denied|undefined reference|No such file or directory|cannot find|ranlib: unable to rename|ar: unable to rename" `
-        -CaseSensitive:$false | Select-Object -First 6
+    $matches = if ($proc.ExitCode -eq 0) {
+        @()
+    } else {
+        Select-String -Path $stdout, $stderr `
+            -Pattern "fatal error:|undefined reference|No such file or directory|cannot find|unable to rename|Permission denied|collect2\.exe: error:|Error 1" `
+            -CaseSensitive:$false | Where-Object {
+                $_.Line -notmatch "Input redirection is not supported" -and
+                $_.Line -notmatch "ranlib: 'ranlib': No such file"
+            } | Select-Object -First 6
+    }
 
     $diag = if ($matches) {
         ($matches | ForEach-Object { $_.Line.Trim() }) -join " || "

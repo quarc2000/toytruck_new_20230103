@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <Wire.h>
 #include <math.h>
+#include <task_safe_wire.h>
  
 #define MPU_ADDR 0x68   // I2C address for the MPU6050
  
@@ -10,20 +10,21 @@ float neg_scale = 1.0;      // Scale factor for negative values
  
 // Wake up MPU6050
 void setupMPU() {
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x6B);   // Power management register
-  Wire.write(0);      // Set to 0 (wakes up the MPU6050)
-  Wire.endTransmission(true);
+  task_safe_wire_begin(MPU_ADDR);
+  task_safe_wire_write(0x6B);   // Power management register
+  task_safe_wire_write(0);      // Set to 0 (wakes up the MPU6050)
+  task_safe_wire_end();
 }
  
 // Read raw 16-bit value from the accelerometer's X-axis (registers 0x3B & 0x3C)
 int16_t readAccelX() {
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3B);   // Starting register for ACCEL_XOUT_H
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 2, true);
-  int16_t highByte = Wire.read();
-  int16_t lowByte = Wire.read();
+  task_safe_wire_begin(MPU_ADDR);
+  task_safe_wire_write(0x3B);   // Starting register for ACCEL_XOUT_H
+  task_safe_wire_restart();
+  task_safe_wire_request_from(MPU_ADDR, 2);
+  int16_t highByte = task_safe_wire_read();
+  int16_t lowByte = task_safe_wire_read();
+  task_safe_wire_end();
   return (highByte << 8) | lowByte;
 }
  
@@ -114,7 +115,6 @@ float getCalibratedAccelX() {
  
 void setup() {
   Serial.begin(57600);
-  Wire.begin();
   setupMPU();
   delay(100); // Let sensor settle
  

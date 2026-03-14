@@ -1,35 +1,34 @@
-#include <Wire.h>
 #include <Arduino.h>
+#include <task_safe_wire.h>
 
 #define SENSOR_ADDR 0x0D  // I2C address of the QMC5883L sensor
 
 void readSensorData(int16_t* x, int16_t* y, int16_t* z) {
     // Request the data starting from register 0x00 (the data output register)
-    Wire.beginTransmission(SENSOR_ADDR);
-    Wire.write(0x00);  // Register address for data output
-    Wire.endTransmission();
+    task_safe_wire_begin(SENSOR_ADDR);
+    task_safe_wire_write(0x00);  // Register address for data output
+    task_safe_wire_restart();
     
     // Request 6 bytes of data (3 values: X, Y, Z)
-    Wire.requestFrom(SENSOR_ADDR, 6);
-    
-    if (Wire.available() == 6) {
-      *x = (Wire.read() << 8) | Wire.read();  // Combine the high and low bytes for X
-      *y = (Wire.read() << 8) | Wire.read();  // Combine the high and low bytes for Y
-      *z = (Wire.read() << 8) | Wire.read();  // Combine the high and low bytes for Z
+    if (task_safe_wire_request_from(SENSOR_ADDR, 6) == 6) {
+      *x = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine the high and low bytes for X
+      *y = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine the high and low bytes for Y
+      *z = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine the high and low bytes for Z
     } else {
       Serial.println("Error reading sensor data!");
     }
-  }
+    task_safe_wire_end();
+    
+}
 
 void setup() {
   Serial.begin(57600);
-  Wire.begin();  // Start I2C communication on the default ESP32 pins (SDA = GPIO21, SCL = GPIO22)
   
   // Initialize the QMC5883L sensor to continuous measurement mode
-  Wire.beginTransmission(SENSOR_ADDR);
-  Wire.write(0x09);  // Register for mode configuration
-  Wire.write(0x1D);  // Continuous measurement mode
-  Wire.endTransmission();
+  task_safe_wire_begin(SENSOR_ADDR);
+  task_safe_wire_write(0x09);  // Register for mode configuration
+  task_safe_wire_write(0x1D);  // Continuous measurement mode
+  task_safe_wire_end();
   
   delay(100);  // Wait for sensor to initialize
 }
