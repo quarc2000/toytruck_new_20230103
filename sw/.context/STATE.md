@@ -1,9 +1,8 @@
 # State
 
 ## Current Task Memory
-- Active task: task-safety analysis and remediation planning, with immediate focus on `Wire` / I2C access.
+- Active task: clean up the active firmware codebase and build targets before continuing feature work such as mapping.
 - Known active conflict: `CON-0001` tracks the current architecture-level task-safety gap around direct `Wire` usage without a project-wide approved synchronization model.
-- Additional active conflict: `CON-0002` tracks shared mutable state in `src/sensors/usensor.cpp` across a task, ISR, and registration path without an approved synchronization model.
 - The repository uses multiple firmware entry points and reusable modules, so task-safety review must cover both reusable runtime modules and test or bring-up paths.
 - `setget` is the current approved shared-state mechanism for loosely coupled parallel tasks.
 - Existing evidence already shows direct `Wire` access in multiple modules, while only `EXPANDER` has a local I2C semaphore.
@@ -12,6 +11,53 @@
 - Additional `Wire` usage exists in test or bring-up paths: `src/z_main_23017_test.cpp`, `src/z_main_accsensorcalibration.cpp`, `src/z_main_gy-271_monolith.cpp`, `src/z_main_i2cscan.cpp`, and `src/z_main_expander.cpp`.
 - Source-level review now confirms the reusable I2C modules have been refactored onto `task_safe_wire`, while remaining direct `Wire` usage outside the wrapper is in `src/dynamics.cpp` and `src/z_main_*` bring-up paths.
 - Build verification could not be completed in this session because local PlatformIO runs failed with a permissions error opening `C:\Users\patbwm\.platformio\platforms.lock`.
-- `src/sensors/usensor.cpp` is now confirmed as a separate task-safety issue because it uses file-scope mutable state shared by `TriggerTask`, `echoInterrupt`, and `Usensor::open()`.
+- A follow-up build attempt worked around the read-only home-directory lock by using a workspace-local `.platformio-local` cache copied from the installed PlatformIO packages.
+- In that local-cache setup, `pio run -e usensor` and `pio run -e hwtest` both compile `src/sensors/usensor.cpp` without C++ diagnostics, but the full builds still fail later when `xtensa-esp32-elf-ar` / `xtensa-esp32-elf-ranlib` try to rename generated `.a` archives under `.pio/build/...`, reporting `Permission denied`.
+- `.context/TOOLS.md` now documents the PlatformIO full-path invocation, the `.platformio-local` cache workaround, and the `cmd /c rmdir /s /q .pio\build\<env>` cleanup fallback for future runs in this sandbox.
+- `src/sensors/usensor.cpp` has been remediated at source level by protecting module state with a `portMUX`, moving `globalVar_set()` calls out of the ISR, and deferring task startup until sensor registration begins.
 - Agreed direction for I2C safety: use a shared bus semaphore and a wrapper API shaped around `task_safe_wire_begin(addr)`, `task_safe_wire_write(...)`, `task_safe_wire_restart()`, `task_safe_wire_request_from(addr, len)`, `task_safe_wire_read()`, and `task_safe_wire_end()`.
 - Reason for this API shape: keep call-site structure close to current `Wire` usage, avoid exposing `endTransmission(false)`, preserve explicit repeated-start behavior, and avoid hidden state that could make reentrant behavior harder to reason about.
+- The user asked to pause the remaining task-safety follow-up items and move them to `BACKLOG.md` while they perform tomorrow's on-system verification.
+- Mapping is now paused and moved to `BACKLOG.md` so cleanup happens before more feature work is added on top.
+- The user wants a 2D occupancy-style map where each cell represents a physical square, likely 5 cm or 10 cm, and cell state may need bit flags rather than a single enum value.
+- The planned map must be able to store at least blocked or unknown space plus a start point and a destination point.
+- The design also needs to account for a separate observed map that will later be updated from sensors and aligned with the planned map using vehicle motion, speed, and direction.
+- Future mapping work is expected to include VL53L5 sensors, so the map design should leave room for point-cloud projection into the 2D occupancy map rather than assuming only simple range rays.
+- A first mapping subsystem has now been added under `include/navigation` and `src/navigation`.
+- The current implementation provides `GridMap`, `ProgrammedMapDefinition`, `MapBundle`, a sample programmed labyrinth map, and a focused `z_main_map.cpp` entry point.
+- Map cells are implemented as a 4-byte structure with bit flags plus confidence, and map geometry stores width, height, cell size in millimeters, and world origin.
+- The implementation keeps cell size configurable so both 5 cm and 10 cm grids are supported by the same code path.
+- A presentation and code walkthrough document now exists at `docs/MAPPING_ARCHITECTURE.md`.
+- Build verification for the new mapping environment has not been completed in this sandbox because PlatformIO archive-packaging failures remain unresolved.
+- The position model has now been shifted toward packed grid-space exchange: one 32-bit `int` stores `x`, `y`, `direction`, and `speed` as four signed bytes.
+- `-128` is now the reserved unknown sentinel for each packed position field.
+- The map API now provides `pos2int(...)` and `int2pos(...)`, and per-map `cell_size_mm` remains available so tasks can convert grid deltas into physical distance.
+- `setget` now includes mapping-oriented shared variables for packed observed and programmed pose plus observed and programmed cell size.
+- `platformio.ini` currently parses correctly for `env:maptest`; local CLI inspection lists that environment explicitly.
+- The current inability to select `maptest` appears to be a VS Code PlatformIO metadata or cache refresh issue rather than an environment-count limit or an INI parse failure.
+- Existing generated IDE metadata under `.vscode` is stale and still reflects `compass` as the active/generated environment set.
+- The `build_src_filter` entries in `platformio.ini` are relative to the project `src` directory by default; the root location of `platformio.ini` is normal and is not the reason `maptest` is missing from the IDE environment selector.
+- Cleared local PlatformIO and IDE-generated cache state by deleting `.pio/build`, `.pio/libdeps`, `.vscode/c_cpp_properties.json`, and `.vscode/launch.json`; only `.vscode/extensions.json` remains.
+- The VS Code PlatformIO extension appears to break on the larger environment list for this project, while the PlatformIO CLI still parses all environments correctly.
+- The temporary split-configuration workaround has been removed; all PlatformIO environments now live in the main `platformio.ini` again so direct `pio run -e <env>` usage resolves from one file.
+- `pio` is now on `PATH` in this shell and resolves directly without the previously documented full-path workaround.
+- Direct `pio run -e maptest -t clean` succeeds in this shell, confirming that plain `pio run -e ... -t ...` invocation works for non-device targets.
+- Direct `pio run -e maptest` succeeds when it is run in the same shell session after sourcing `.\pio-local.ps1`.
+- The old `C:\Users\patbwm\.platformio\platforms.lock` failure still applies if PlatformIO is run without the repo-local helper workflow.
+- Upload or other device-dependent PlatformIO targets were not validated in this session because the device is not connected.
+- Added a repo-local helper script `pio-local.ps1` that points PlatformIO at `.platformio-local` for the current PowerShell session without changing global PlatformIO settings.
+- Refreshed the full environment sweep after the sandbox permission change using the repo-local helper workflow.
+- In the refreshed sweep, `usensor` and `motor` completed successfully.
+- The `.pio\\build` archive rename `Permission denied` failure is still present, but now intermittently rather than universally; representative clean rebuilds of `maptest`, `config`, and `steer` still fail on `libFrameworkArduinoVariant.a`.
+- Real source/dependency issues remain visible in some environments regardless of the archive issue, including missing `FastLED.h`, missing `Adafruit_Sensor.h`, and a `logger.h` include-path mismatch.
+- Build logs and the updated collated report exist under `build_reports/`, including `build_reports/2026-03-14-env-build-report.md`.
+- After re-consolidating all environments into the main `platformio.ini`, a fresh main-file-only sweep was captured under `build_reports/2026-03-14-main-only-*.log` and `build_reports/2026-03-14-main-only-summary.md`.
+- In that consolidated sweep, the persistent real build issues are: missing `Adafruit_Sensor.h` in `real_main` and `logger`, missing `FastLED.h` in `light` and `logger`, and the stale include path `#include <logger.h>` in `src/z_main_logger.cpp` while the header actually lives at `include/telemetry/logger.h`.
+- `src/actuators/light.cpp` has now been deleted because it does not match the active truck hardware; lights are driven by the IO expander and the previously used pin is now used for steering-servo PWM.
+- The dedicated `logger` PlatformIO environment has now been removed from `platformio.ini`; the merged logger code is being kept in the repository but deferred to `BACKLOG.md` for later redesign into a usable project logging path.
+- The Adafruit-based `compass.cpp` path is no longer treated as active. The dedicated `compass` PlatformIO environment has been removed, and `env:real_main` no longer compiles every sensor driver broadly; it now includes only `sensors/usensor.cpp` from `src/sensors`.
+- The dedicated `real_main` PlatformIO environment has now also been removed from `platformio.ini`. The underlying `src/z_main_real.cpp` and telemetry/logger source files still exist in the repository, but they are no longer part of the active build set while cleanup focuses on current truck firmware paths.
+- A fresh post-prune sweep was captured under `build_reports/2026-03-14-post-prune-*.log` and `build_reports/2026-03-14-post-prune-summary.md`.
+- In that post-prune sweep, the earlier hard source/dependency errors from `light`, `logger`, `compass`, and `real_main` are no longer present in the active environment set. All remaining active environments currently fail at the intermittent `.pio\\build\\...\\libFrameworkArduinoVariant.a` archive rename step with `Permission denied`.
+- With the merge-residue environments removed, the next code-cleanup targets should come from the visible warning clusters in active code: deprecated critical-section macros in `src/variables/setget.cpp`, unused locals in `src/sensors/accsensor.cpp` and `src/sensors/accsensorkalman.cpp`, possible uninitialized pins in `src/sensors/usensor.cpp`, `PI` redefinition in `src/sensors/GY271.cpp`, and ambiguous expressions in `src/z_main_accsensorcalibration.cpp`.
+- The highest-value code-cleanup warnings currently visible are: deprecated `taskENTER_CRITICAL` / `taskEXIT_CRITICAL` usage in `src/variables/setget.cpp`, unused `tmp_AcX` locals in `src/sensors/accsensor.cpp` and `src/sensors/accsensorkalman.cpp`, possible uninitialized `trig_pin` / `echo_pin` use in `src/sensors/usensor.cpp`, `PI` macro redefinition in `src/sensors/GY271.cpp`, and ambiguous-expression warnings in `src/z_main_accsensorcalibration.cpp`.

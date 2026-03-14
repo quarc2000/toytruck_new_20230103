@@ -31,6 +31,10 @@ typedef enum {
     calcDistance,  // mm
     calcXpos,      // mm
     calcYpos,      // mm
+    mapObservedPosePacked,      // packed int: x,y,direction,speed as signed bytes. x east, y north, direction in 5 degree steps from north, speed in signed cm/s. -128 per field = unknown.
+    mapProgrammedPosePacked,    // packed int: x,y,direction,speed as signed bytes. x east, y north, direction in 5 degree steps from north, speed in signed cm/s. -128 per field = unknown.
+    mapObservedCellSizeMm,      // mm per observed-map cell
+    mapProgrammedCellSizeMm,    // mm per programmed-map cell
     steerDirection,     //-100 to +100 wheel direction
     //>>> Robot - DRIVER
     driver_driverActivity,

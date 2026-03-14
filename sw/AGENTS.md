@@ -64,4 +64,5 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - Keep resource files updated via `.context/resources/README.md` index.
 - Use the root `CONFLICTS.md` as the formal conflict register and keep it in table format.
 - Use the root `DECISIONS.md` to log significant project decisions, especially around conflicts, deviations, and architectural direction. Do not use it for context-maintenance housekeeping or backlog-only deferrals.
+- Whenever any file is added to or deleted from the repository, the agent MUST document the change in `.context/PROJECT_HISTORY.md`, including why the file was added or removed.
 - After meaningful progress (especially after debugging struggles), remind the user that making a git commit checkpoint is a good idea.

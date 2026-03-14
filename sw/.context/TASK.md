@@ -1,7 +1,7 @@
 # Task
 
 ## Active Task
-Analyse the code for task safety and make sure the codebase moves toward a fully task-safe model, with immediate focus on shared-resource access and especially `Wire` / I2C usage.
+Clean up the active firmware codebase and PlatformIO environment set so new development proceeds on a smaller, current, and defensible baseline instead of on top of merged residue, stale build targets, and warning-heavy code.
 
 ## Completed In This Task
 - Previous board-analysis task completed with initial board resource files for the TOY controller board and IO expander.
@@ -10,23 +10,30 @@ Analyse the code for task safety and make sure the codebase moves toward a fully
 - First inventory pass of concurrency-sensitive code paths has been completed.
 - Proposed I2C wrapper direction has been agreed with the user.
 - Reusable I2C modules have now been moved onto the shared `task_safe_wire` wrapper, pending successful build verification.
-- Follow-up review identified a separate active conflict in `src/sensors/usensor.cpp` around unsynchronized shared state between a task, an ISR, and registration logic.
+- Follow-up review identified and remediated a separate `src/sensors/usensor.cpp` task-safety issue around unsynchronized shared state between a task, an ISR, and registration logic.
+- The user paused the remaining verification/remediation steps for this task and asked for them to be moved to `BACKLOG.md` for later follow-up.
+- The user selected mapping as the next task, with immediate focus on map representation and planning rather than sensor fusion implementation.
+- Implemented a first mapping subsystem with a reusable grid map, a programmed-map definition format, a paired programmed or observed map bundle, a sample map, and a focused `maptest` PlatformIO environment.
+- Prepared `docs/MAPPING_ARCHITECTURE.md` to present the mapping architecture and explain the code structure.
+- Updated the map model so packed position exchange uses one `int` containing four signed bytes for `x`, `y`, `direction`, and `speed`, with `-128` reserved as unknown.
+- Reduced the active PlatformIO environment set by removing stale or merged-residue build targets such as `light`, `logger`, `compass`, and `real_main`.
+- Recorded that `src/actuators/light.cpp` was deleted because it does not match the active truck hardware path.
+- Confirmed that after pruning the stale environments, the remaining active build failures are dominated by the intermittent archive rename permission issue plus a defined set of code warnings in active modules.
 
 ## Task Plan
-1. Inventory all shared-resource access patterns that may be unsafe across tasks.
-2. Classify the findings by type: I2C / `Wire`, global state, static state, driver initialization, and cross-task function reentrancy.
-3. Define the project-approved task-safe pattern for I2C access and document the intended wrapper or serialization model.
-4. Implement a shared I2C wrapper built around `task_safe_wire_begin`, `task_safe_wire_write`, `task_safe_wire_restart`, `task_safe_wire_request_from`, `task_safe_wire_read`, and `task_safe_wire_end`.
-5. Refactor direct `Wire` call sites toward the approved pattern, starting with reusable modules before test-only entry points.
-6. Re-check the codebase for remaining unsafe access paths and update `CONFLICTS.md`, `BACKLOG.md`, and architecture notes accordingly.
-7. Resolve or explicitly accept the `usensor.cpp` concurrency model before further task-safety remediation continues.
+1. Keep the active PlatformIO environments limited to current, intentional truck firmware paths.
+2. Remove or isolate merged residue and stale source paths from active builds without deleting potentially reusable code unless the user confirms removal.
+3. Clean the current warning clusters in active code paths, starting with `setget.cpp`, `accsensor.cpp`, `accsensorkalman.cpp`, `usensor.cpp`, `GY271.cpp`, and `z_main_accsensorcalibration.cpp`.
+4. Rebuild the active environments after each cleanup increment to separate real code issues from the intermittent archive rename sandbox fault.
+5. Defer non-current subsystems such as logger redesign and mapping expansion to `BACKLOG.md` until the active codebase is cleaner.
 
 ## Definition Of Done
-- No remaining unprotected concurrent access path exists to shared resources in the active codebase.
-- Shared resources include at least the I2C bus, shared mutable state, shared static or file-scope state used across tasks, and any driver or service API callable from multiple tasks.
-- Reusable runtime modules must follow the approved task-safe access pattern.
-- Any remaining exceptions must either be removed, proven non-concurrent, or explicitly tracked in governance files.
+- The active build set reflects current truck code paths only.
+- The main visible warnings in active code have been reduced or documented with intent.
+- The repository is in a cleaner state for continued feature work without relying on stale merged code paths.
 
 ## Immediate Next Actions
-- Confirm how you want to handle `CON-0002` in `src/sensors/usensor.cpp`: remediate now, explicitly accept/defer it, or narrow the active task scope.
-- Once `CON-0002` is resolved, rerun focused PlatformIO builds for `accsensor`, `accsensorkalman`, `compass`, `gy271`, and `expander`.
+- Update planning context so cleanup is the active task and mapping is explicitly paused.
+- Keep the paused task-safety validation work in `BACKLOG.md` unless the user reactivates it.
+- Use the latest post-prune build sweep as the baseline for the next cleanup pass.
+- Start fixing the active warning clusters one file group at a time.

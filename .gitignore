@@ -12,6 +12,14 @@
 *.drawio.bkp
 .vscode/*
 
+hw/*
+*.json
+*.py
+*.o
+*.a
+*.yml
+*/.platformio-local/*
+
 #Kicad backups and work files
 hw/pcb-kicad/atmt-kcad/atmt-kcad-backups/*.zip
 hw/pcb-kicad/atmt-kcad/#auto_saved_files#
@@ -374,3 +382,5 @@ MigrationBackup/
 .vscode/ipch
 examples/.~lock.Example of different task types in RTOS on ESP32.odt#
 .gitignore
+*/.pio/*
+*/.vscode/*

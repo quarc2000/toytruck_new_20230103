@@ -30,98 +30,158 @@ struct sensors
     VarNames NAME;
 };
 
-volatile sensors sensor[MAX_SENSORS];
-
-volatile int num_sensors = 0;
-volatile int current_sensor = 0;
-volatile bool pulse_active = false; // indicate a pulse has been sent and no echo yet received.
-volatile long startTime;  //need to implement proper wrap around for this using nsigned and signed
+static sensors sensor[MAX_SENSORS];
+static portMUX_TYPE usensorMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile int num_sensors = 0;
+static volatile int current_sensor = -1;
+static volatile bool pulse_active = false;
+static volatile bool echo_started = false;
+static volatile uint32_t startTime = 0;
+static volatile bool measurement_ready = false;
+static volatile int pending_distance = 199;
+static volatile VarNames pending_name = rawDistFront;
+static bool trigger_task_started = false;
 
 void echoInterrupt()
 {
+    portENTER_CRITICAL_ISR(&usensorMux);
 
-    if (digitalRead(sensor[current_sensor].ECHO) == HIGH)
+    const int sensor_index = current_sensor;
+    if (sensor_index < 0 || sensor_index >= num_sensors)
     {
-        /*Serial.print(" S");
-        Serial.print(current_sensor);
-        Serial.println("u ");*/
-        pulse_active = true;
+        portEXIT_CRITICAL_ISR(&usensorMux);
+        return;
+    }
 
-        // The echo pin went from LOW to HIGH: start timing
+    if (digitalRead(sensor[sensor_index].ECHO) == HIGH)
+    {
+        pulse_active = true;
+        echo_started = true;
         startTime = micros();
     }
-    else
+    else if (pulse_active && echo_started)
     {
-        /*Serial.print(" S");
-       Serial.print(current_sensor);
-       Serial.println("d ");*/
-        // long tmp = micros() - startTime ;
-        //  The echo pin went from HIGH to LOW: stop timing and calculate distance
-        pulse_active = false;
-        long travelTime = micros() - startTime; // need to make this wrap around safe by the int - uint trick
-        int distance = travelTime / 29 / 2;     // in cm
+        uint32_t travelTime = micros() - startTime;
+        int distance = travelTime / 29 / 2;
         if (distance > 199)
+        {
             distance = 199;
-        globalVar_set(sensor[current_sensor].NAME, distance);
+        }
+
+        pulse_active = false;
+        echo_started = false;
+        pending_distance = distance;
+        pending_name = sensor[sensor_index].NAME;
+        measurement_ready = true;
     }
+
+    portEXIT_CRITICAL_ISR(&usensorMux);
+}
+
+static bool dequeueMeasurement(VarNames *name, int *distance)
+{
+    bool ready = false;
+
+    portENTER_CRITICAL(&usensorMux);
+    if (measurement_ready)
+    {
+        *name = pending_name;
+        *distance = pending_distance;
+        measurement_ready = false;
+        ready = true;
+    }
+    portEXIT_CRITICAL(&usensorMux);
+
+    return ready;
 }
 
 static void TriggerTask(void *params)
 {
-    //  Serial.println("Distance sensor test...");
-    // Initialize trigger and echo pins
-
-    // Attach an interrupt to the echo pin
-    // attachInterrupt(digitalPinToInterrupt(echoPins[i]), echoInterrupt, CHANGE);
-
     for (;;)
     {
-        // Serial.print(">");
-        if (num_sensors > 0)
+        VarNames measured_name;
+        int measured_distance;
+        if (dequeueMeasurement(&measured_name, &measured_distance))
         {
-            if (pulse_active)
-            {
-                // vTaskDelay(pdMS_TO_TICKS(50)); // we have not yet reveived an echo from the previous trigger,
-                // set distance to 199 indicating unknown value
-                globalVar_set(sensor[current_sensor].NAME, 199);
-            }
-            current_sensor++;
-            if (current_sensor >= num_sensors)
-            {
-                // Making sure we iterate between the sensors we have opened, returning to the first sensor to start over again
-                // maybe a for loop inside a loop would be more visual ans self explanatory?
-                // It would also be possible to build a more advanced scheduling algorithm, for instance that the first
-                // sensor registered would be be polled in between every other, to give it much higher resolution
-                //  Could make sense for the forward sensor if running at high speeds.
-                current_sensor = 0;
-            }
-            // Initialize trigger and echo pins
-            pinMode(sensor[current_sensor].TRIG, OUTPUT);
-            pinMode(sensor[current_sensor].ECHO, INPUT);
-
-            // Attach an interrupt to the echo pin, the same task for all pins
-            // as we only run one sensor at a time that works great
-            attachInterrupt(digitalPinToInterrupt(sensor[current_sensor].ECHO), echoInterrupt, CHANGE);
-
-            // Send a 10 microsecond pulse to start the sensor
-            pulse_active = true;
-            digitalWrite(sensor[current_sensor].TRIG, HIGH);
-            delayMicroseconds(10);
-            digitalWrite(sensor[current_sensor].TRIG, LOW);
+            globalVar_set(measured_name, measured_distance);
         }
-        // Wait for 50 ms before polling the next sensor
+
+        int previous_sensor = -1;
+        int active_sensors = 0;
+
+        portENTER_CRITICAL(&usensorMux);
+        active_sensors = num_sensors;
+        previous_sensor = current_sensor;
+        portEXIT_CRITICAL(&usensorMux);
+
+        if (active_sensors > 0 && previous_sensor >= 0)
+        {
+            detachInterrupt(digitalPinToInterrupt(sensor[previous_sensor].ECHO));
+        }
+
+        if (active_sensors > 0)
+        {
+            int next_sensor;
+            uint8_t trig_pin;
+            uint8_t echo_pin;
+            VarNames timeout_name = rawDistFront;
+            bool emit_timeout = false;
+
+            portENTER_CRITICAL(&usensorMux);
+            active_sensors = num_sensors;
+            if (active_sensors > 0)
+            {
+                if (pulse_active && !measurement_ready && current_sensor >= 0)
+                {
+                    emit_timeout = true;
+                    timeout_name = sensor[current_sensor].NAME;
+                }
+
+                pulse_active = false;
+                echo_started = false;
+                next_sensor = current_sensor + 1;
+                if (next_sensor >= active_sensors || next_sensor < 0)
+                {
+                    next_sensor = 0;
+                }
+                current_sensor = next_sensor;
+                trig_pin = sensor[next_sensor].TRIG;
+                echo_pin = sensor[next_sensor].ECHO;
+            }
+            portEXIT_CRITICAL(&usensorMux);
+
+            if (emit_timeout)
+            {
+                globalVar_set(timeout_name, 199);
+            }
+
+            pinMode(trig_pin, OUTPUT);
+            pinMode(echo_pin, INPUT);
+            attachInterrupt(digitalPinToInterrupt(echo_pin), echoInterrupt, CHANGE);
+
+            portENTER_CRITICAL(&usensorMux);
+            pulse_active = true;
+            echo_started = false;
+            portEXIT_CRITICAL(&usensorMux);
+
+            digitalWrite(trig_pin, HIGH);
+            delayMicroseconds(10);
+            digitalWrite(trig_pin, LOW);
+        }
         vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL));
     }
 }
 
 Usensor::Usensor()
 {
-    // start the task that regularly will trigger the opened sensors
-    xTaskCreate(TriggerTask, "testsetup", 2000, NULL, 1, NULL);
 }
 
 int Usensor::open(uint8_t trig, uint8_t echo, VarNames name)
 {
+    bool start_task = false;
+    int opened_sensors;
+
+    portENTER_CRITICAL(&usensorMux);
     if (num_sensors < MAX_SENSORS)
     {
         Serial.print("+");
@@ -129,6 +189,19 @@ int Usensor::open(uint8_t trig, uint8_t echo, VarNames name)
         sensor[num_sensors].ECHO = echo;
         sensor[num_sensors].NAME = name;
         num_sensors++;
+        if (!trigger_task_started)
+        {
+            trigger_task_started = true;
+            start_task = true;
+        }
     }
-    return num_sensors;
+    opened_sensors = num_sensors;
+    portEXIT_CRITICAL(&usensorMux);
+
+    if (start_task)
+    {
+        xTaskCreate(TriggerTask, "testsetup", 2000, NULL, 1, NULL);
+    }
+
+    return opened_sensors;
 }
