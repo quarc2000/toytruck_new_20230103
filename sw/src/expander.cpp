@@ -9,10 +9,8 @@ EXPANDER::EXPANDER(uint8_t switchAddr, uint8_t gpioAddr)
     : switchAddr(switchAddr), gpioAddr(gpioAddr), switchStackIndex(0), currentChannel(0) {
 }
 
-// Private method to handle I2C initialization
-void EXPANDER::beginI2C() {
-    task_safe_wire_init();
-}
+// Private method retained for interface stability; bus init is lazy in task_safe_wire_begin().
+void EXPANDER::beginI2C() {}
 
 // Initialize the 9548 switch to default channel (0)
 void EXPANDER::initSwitch() {

@@ -65,4 +65,5 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - Use the root `CONFLICTS.md` as the formal conflict register and keep it in table format.
 - Use the root `DECISIONS.md` to log significant project decisions, especially around conflicts, deviations, and architectural direction. Do not use it for context-maintenance housekeeping or backlog-only deferrals.
 - Whenever any file is added to or deleted from the repository, the agent MUST document the change in `.context/PROJECT_HISTORY.md`, including why the file was added or removed.
+- Prefer the absolute minimum design that satisfies the current project need while still fully meeting safety, security, privacy, correctness, and project-rule requirements. If the agent believes extra features, generalization, or flexibility beyond that minimum would be useful, it MUST present that as an explicit user decision instead of adding it unasked.
 - After meaningful progress (especially after debugging struggles), remind the user that making a git commit checkpoint is a good idea.

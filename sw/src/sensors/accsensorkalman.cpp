@@ -85,7 +85,6 @@ void ACCsensor::Begin()
     globalVar_set(calcSpeed, 0);
     globalVar_set(calcDistance, 0);
     globalVar_set(calcHeading, 0);
-    task_safe_wire_init();
     task_safe_wire_begin(MPU6050_ADDR);
     task_safe_wire_write(PWR_MGMT_1);
     task_safe_wire_write(0);
@@ -106,16 +105,9 @@ void ACCsensor::Begin()
     task_safe_wire_write(0x75); // WHO_AM_I register
     task_safe_wire_restart();
     task_safe_wire_request_from(MPU6050_ADDR, 1); // Request 1 byte (WHO_AM_I)
-    if (task_safe_wire_available())
-    {
-        byte whoAmI = task_safe_wire_read();
-        Serial.print("WHO_AM_I: 0x");
-        Serial.println(whoAmI, HEX); // Should print 0x68 if MPU6050 is present
-    }
-    else
-    {
-        Serial.println("Error: Failed to read WHO_AM_I register");
-    }
+    byte whoAmI = task_safe_wire_read();
+    Serial.print("WHO_AM_I: 0x");
+    Serial.println(whoAmI, HEX); // Should print 0x68 if MPU6050 is present
     task_safe_wire_end();
     vTaskDelay(pdMS_TO_TICKS(200));
     // We need to store the zero values avergaes

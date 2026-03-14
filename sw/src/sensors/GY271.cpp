@@ -2,15 +2,11 @@
 #include <math.h>
 #include <task_safe_wire.h>
 
-#define PI 3.14159265358979323846  // Define PI manually
-
 
 GY271::GY271(uint8_t address) : _address(address), _x(0), _y(0), _z(0) {
 }
 
 bool GY271::begin() {
-    task_safe_wire_init();
-  
     // Set the sensor to continuous measurement mode
     task_safe_wire_begin(_address);
     task_safe_wire_write(0x09);  // Register for mode configuration
@@ -59,17 +55,11 @@ void GY271::updateData() {
     // Request 6 bytes of data (3 values: X, Y, Z)
     task_safe_wire_request_from(_address, 6);
     
-    if (task_safe_wire_available() == 6) {
-        _x = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for X
-        _y = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Y
-        _z = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Z
-    } else {
-        //Serial.println("Error reading sensor data!");
-    }
+    _x = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for X
+    _y = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Y
+    _z = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Z
     task_safe_wire_end();
 }
-
-#include <math.h>
 
 // Assuming _x, _y, and _z hold the raw magnetometer data from the QMC5883L sensor
 
