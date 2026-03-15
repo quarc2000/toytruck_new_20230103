@@ -45,9 +45,9 @@ void loop(){
     Serial.print(globalVar_get(calcHeading));
     Serial.print("   Heading (deg): ");
     Serial.print(globalVar_get(calcHeading) / 10.0f);
-    Serial.print("   Distance (stored scale): ");
+    Serial.print("   Distance (mm): ");
     Serial.print(globalVar_get(calcDistance));
-    Serial.print("   Speed (stored scale): ");
+    Serial.print("   Speed (mm/s): ");
     Serial.print(globalVar_get(calcSpeed));
     Serial.println();
     Serial.println();

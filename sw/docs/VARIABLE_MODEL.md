@@ -75,13 +75,13 @@ Name prefixes should follow the same structure:
 | 1010 | `rawMagX` | raw | Magnetometer X axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Magnetometer path is not active on the truck today. Keep semantics provisional until the active magnetometer path is chosen. |
 | 1011 | `rawMagY` | raw | Magnetometer Y axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Same caveat as `rawMagX`. |
 | 1012 | `rawMagZ` | raw | Magnetometer Z axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Same caveat as `rawMagX`. |
-| 1020 | `rawAccX` | raw | Forward-axis acceleration after zero-offset correction | MPU6050 raw counts after subtracting `zeroAx` | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The current code stores counts, not `m/s^2` or `mg`. Kalman variant stores filtered counts. |
-| 1021 | `rawAccY` | raw | Lateral-axis acceleration | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Kalman variant stores filtered counts. Unit is still raw sensor scale. |
-| 1022 | `rawAccZ` | raw | Vertical-axis acceleration | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Kalman variant stores filtered counts. Unit is still raw sensor scale. |
-| 1023 | `rawTemp` | raw | MPU6050 temperature estimate | tenths of degrees C | signed integer where `365` means `36.5 C` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 datasheet conversion in integer form and stores the result as `degC10`. |
-| 1030 | `rawGyX` | raw | Gyroscope X axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. |
-| 1031 | `rawGyY` | raw | Gyroscope Y axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. |
-| 1032 | `rawGyZ` | raw | Gyroscope Z axis used for yaw-rate updates | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Stored in the same `deg/s * 10` unit as `rawGyX` and `rawGyY` after subtracting the startup `zeroGz` calibration. |
+| 1020 | `rawAccX` | raw | Forward-axis acceleration after zero-offset correction | MPU6050 raw counts after subtracting `zeroAx` | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The current code stores counts, not `m/s^2` or `mg`. `env:accsensor` publishes a lightweight EMA-filtered count; `env:accsensorkalman` publishes a Kalman-filtered count. |
+| 1021 | `rawAccY` | raw | Lateral-axis acceleration | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` publishes a lightweight EMA-filtered count; `env:accsensorkalman` publishes a Kalman-filtered count. Unit is still raw sensor scale. |
+| 1022 | `rawAccZ` | raw | Vertical-axis acceleration | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` publishes a lightweight EMA-filtered count; `env:accsensorkalman` publishes a Kalman-filtered count. Unit is still raw sensor scale. |
+| 1023 | `rawTemp` | raw | MPU6050 temperature estimate | tenths of degrees C | signed integer where `365` means `36.5 C` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 datasheet conversion in integer form and stores the result as `degC10`. Both envs currently apply a lightweight EMA before publishing. |
+| 1030 | `rawGyX` | raw | Gyroscope X axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. Both envs currently apply a lightweight EMA before publishing. |
+| 1031 | `rawGyY` | raw | Gyroscope Y axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. Both envs currently apply a lightweight EMA before publishing. |
+| 1032 | `rawGyZ` | raw | Gyroscope Z axis used for yaw-rate updates | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Stored in the same `deg/s * 10` unit as `rawGyX` and `rawGyY` after subtracting the startup `zeroGz` calibration. Both envs currently apply a lightweight EMA before publishing. |
 | 1040 | `rawLidarFront` | raw | Reserved front lidar distance | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present for a future lidar path; no active producer today. |
 
 ### Calculated Values
@@ -89,8 +89,8 @@ Name prefixes should follow the same structure:
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 2001 | `calcHeading` | calc | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is integrated from the startup-bias-corrected `rawGyZ` using elapsed milliseconds into a stable `deg10` scale, but overall heading quality still depends on drift and noise. |
-| 2002 | `calcSpeed` | calc | Integrated forward speed estimate from acceleration history | code-specific scaled integer, not yet stable SI | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The current code integrates corrected acceleration counts over elapsed milliseconds. Debug output interprets this through `/(8*2048)`, but the stored unit is not yet formally defined. |
-| 2003 | `calcDistance` | calc | Integrated forward travel estimate from `calcSpeed` over elapsed time | intended millimeters, but depends on current `calcSpeed` scaling | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Comment says millimeters, but this inherits all unit ambiguity from `calcSpeed`. |
+| 2002 | `calcSpeed` | calc | Integrated forward speed estimate from accelerometer X history | millimeters per second | signed integer where `250` means `250 mm/s` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The current code converts filtered MPU6050 X-axis counts at the configured `+-2g` range into `mm/s^2`, then integrates over elapsed milliseconds into `mm/s`. |
+| 2003 | `calcDistance` | calc | Integrated forward travel estimate from `calcSpeed` over elapsed time | millimeters | signed integer where `250` means `250 mm` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The current code integrates the average of old and new `calcSpeed` over elapsed milliseconds into `mm`. |
 | 2004 | `calcXpos` | calc | Reserved X position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
 | 2005 | `calcYpos` | calc | Reserved Y position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
 
@@ -132,13 +132,22 @@ These IDs are reserved as the first recommended fused outputs:
 
 ## Current Semantic Gaps To Fix Later
 
-The most important unresolved unit problems are:
+The most important remaining semantic gaps are now about quality and fusion rather than base units:
 
-1. `calcSpeed`
-   Current storage is an integration accumulator in project-specific scale, not yet a stable physical unit such as `mm/s`.
+1. Gyro drift and heading quality
+   `calcHeading` now has a stable unit, but long-term accuracy still depends on bias stability and noise.
 
-2. `calcDistance`
-   Intended to be millimeters, but inherits uncertainty from `calcSpeed`.
+2. Accelerometer-integration quality
+   `calcSpeed` and `calcDistance` now have explicit `mm/s` and `mm` units, but accumulated drift will still depend on bias, vibration, and filter tuning.
+
+The current MPU6050 env difference is now intentional and should stay narrow:
+
+- `env:accsensor`
+  Uses a lightweight in-project EMA on all published MPU6050 values.
+- `env:accsensorkalman`
+  Uses Kalman filtering on the accelerometer channels and the same lightweight EMA on temperature and gyro channels.
+
+This difference is implementation strategy only. Both environments should keep the same shared-variable contract and debug-output shape so they can be compared by environment selection alone.
 
 ## Recommended Next Formalization Steps
 
@@ -152,12 +161,41 @@ The most important unresolved unit problems are:
 
 The first fusion layer should not be spread across unrelated sensor tasks. A small dedicated package is the cleaner model.
 
+### Concrete `calc*` vs `fuse*` Boundary
+
+Use this rule going forward:
+
+- `calc*`
+  Fast, local estimates derived from one sensor family or one short processing chain.
+- `fuse*`
+  Decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints.
+
+Applied to the current motion variables:
+
+| Current Variable | Keep As | Why |
+|---|---|---|
+| `calcHeading` | `calc*` for now | It is still a fast gyro-driven heading estimate from one sensor chain. |
+| `calcSpeed` | `calc*` for now | It is still a fast accelerometer-integration estimate from one sensor chain. |
+| `calcDistance` | `calc*` for now | It is derived directly from `calcSpeed` and stays part of the same local motion chain. |
+| `fuseHeadingDeg10` | future `fuse*` | This should become the best heading after combining gyro integration, map alignment, and later other sensors. |
+| `fuseSpeedMmPs` | future `fuse*` | This should become the best speed after combining inertial estimates, wheel or motor knowledge, and later map or obstacle cues. |
+| `fusePosePacked` | future `fuse*` | This should become the compact decision-ready pose for navigation. |
+
+This keeps the current `calc*` variables useful for fast local estimation while making it clear that later planner-facing or safety-facing motion decisions should prefer `fuse*` ownership rather than continuously overloading `calc*`.
+
 Recommended structure:
 
 - `src/fusion/clearance_fusion.cpp`
   Produces direction-clearance booleans or confidence-coded integers such as `fuseForwardClear`, `fuseReverseClear`, `fuseLeftClear`, and `fuseRightClear`.
 - `src/fusion/pose_fusion.cpp`
   Produces fused pose or motion-state values such as `fuseHeadingDeg10`, `fuseSpeedMmPs`, and a later `fusePosePacked`.
+
+Recommended first task responsibilities:
+
+| Package | Cadence | Inputs | Outputs |
+|---|---|---|---|
+| `clearance_fusion` | fast (`20-50 ms`) | `rawDist*`, future lidar distances, map occupancy near the truck | `fuseForwardClear`, `fuseReverseClear`, `fuseLeftClear`, `fuseRightClear` |
+| `pose_fusion` | slower (`50-200 ms`) | `calcHeading`, `calcSpeed`, `calcDistance`, map alignment, future magnetometer or wheel cues | `fuseHeadingDeg10`, `fuseSpeedMmPs`, `fusePosePacked` |
 
 Recommended task split:
 
@@ -172,16 +210,16 @@ Why:
 - pose and map fusion usually depend on noisier or slower-changing signals and can tolerate a slower cadence
 - separating them keeps each fusion task easier to reason about and test
 
-## First Normalization Targets
+## Current MPU6050 Comparison Rule
 
-If the next step moves from documentation into code semantics, the safest normalization order is:
+For the two active MPU6050 environments, the intended comparison model is now:
 
-1. `calcSpeed`
-   Recommended target unit is `mm/s`.
-2. `calcDistance`
-   Recommended target unit is `mm`, but only after `calcSpeed` is stable.
+- `env:accsensor`
+  Plain in-project filtering using a lightweight EMA on all published MPU6050 values.
+- `env:accsensorkalman`
+  Kalman filtering on the accelerometer channels, with the same lightweight EMA on temperature and gyro channels.
 
-This order keeps the dependencies clear: heading now has a stable unit with a startup bias calibration, and distance still depends on speed scaling.
+This is an implementation-strategy difference only. The shared-variable contract should stay the same between the two environments.
 
 ## Initial Illustration Prompt
 

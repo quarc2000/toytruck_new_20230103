@@ -13,6 +13,8 @@
 static constexpr int32_t MPU6050_TEMP_OFFSET_DEGC10 = 365;
 static constexpr int32_t MPU6050_GYRO_LSB_PER_DPS = 131;
 static constexpr int32_t MPU6050_GYRO_SCALE_FACTOR = 10;
+static constexpr int32_t MPU6050_ACCEL_LSB_PER_G = 16384;
+static constexpr int32_t GRAVITY_MMPS2 = 9807;
 static constexpr int32_t MPU6050_EMA_ALPHA_NUMERATOR = 1;
 static constexpr int32_t MPU6050_EMA_ALPHA_DENOMINATOR = 4;
 
@@ -48,6 +50,12 @@ static int32_t applyEma(int32_t previous_value, int32_t new_value)
     return (previous_value * keep_weight + new_value * MPU6050_EMA_ALPHA_NUMERATOR) / MPU6050_EMA_ALPHA_DENOMINATOR;
 }
 
+static int32_t mpu6050AccelRawToMmPs2(int32_t raw_accel)
+{
+    // ACCEL_CONFIG is left at the default +-2g range, which gives 16384 LSB/g.
+    return divideRoundNearest(raw_accel * GRAVITY_MMPS2, MPU6050_ACCEL_LSB_PER_G);
+}
+
 ACCsensor::ACCsensor()
 {
 }
@@ -67,18 +75,20 @@ static void accel_task(void *pvParameters)
         int16_t AcX = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
         long zAx = globalVar_get(zeroAx);
         // calculate distance
-        long distance_age;
         long old_distance;
         long old_speed;
         long speed_age;
         old_speed = globalVar_get(calcSpeed, &speed_age);
-        old_distance = globalVar_get(calcDistance, &distance_age);
-        // globalVar_get(calcDistance,old_speed,&speed_age);
-        globalVar_set(calcDistance, old_distance + (old_speed * distance_age / (8*2048 ))); // Distance based on old speed, times how long since last update, in mm
-        // calculate speed
-        globalVar_set(calcSpeed, (int)(old_speed + (((AcX - zAx) ) * speed_age))); // Speed based on old acc, times how long sonce last update
+        old_distance = globalVar_get(calcDistance);
         // The plain env publishes an EMA-filtered signal on every MPU6050 channel.
-        globalVar_set(rawAccX, applyEma(globalVar_get(rawAccX), static_cast<int32_t>(AcX) - zAx));
+        const int32_t filteredAccX_counts = applyEma(globalVar_get(rawAccX), static_cast<int32_t>(AcX) - zAx);
+        globalVar_set(rawAccX, filteredAccX_counts);
+        const int32_t filteredAccX_mmps2 = mpu6050AccelRawToMmPs2(filteredAccX_counts);
+        const int32_t new_speed = old_speed + divideRoundNearest(filteredAccX_mmps2 * speed_age, 1000);
+        // Integrate distance using the average of old and new speed so the stored
+        // values are now explicit mm/s and mm rather than the older ad hoc scale.
+        globalVar_set(calcDistance, old_distance + divideRoundNearest((old_speed + new_speed) * speed_age, 2000));
+        globalVar_set(calcSpeed, new_speed);
         //----------------------------
         int16_t AcY = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
         globalVar_set(rawAccY, applyEma(globalVar_get(rawAccY), AcY));

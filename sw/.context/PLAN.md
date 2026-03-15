@@ -9,30 +9,29 @@
 - Normalized `calcHeading` so it is stored as `deg * 10`.
 - Replaced the old hardcoded gyro-Z bias with startup `zeroGz` calibration in both MPU6050 code paths.
 - Added datasheet and chip-note resource structure, including the first `MPU6050.md` chip note with tightened chip-only scope.
-
-## In Progress
-- Keep the two MPU6050 variants directly comparable by environment only:
-  - `env:accsensor` as the plain in-project filtered path
-  - `env:accsensorkalman` as the Kalman comparison path
-  - same `ACCsensor` class interface
-  - same shared-variable outputs
-  - same debug-output shape
-- Finish the current code pass:
-  - `src/sensors/accsensor.cpp`: lightweight filtering on all published MPU6050 values
-  - `src/sensors/accsensorkalman.cpp`: keep Kalman accel filtering, align temperature and gyro smoothing with the plain path
-  - `src/z_main_accsensor_kalman.cpp`: align debug output with `src/z_main_accsensor.cpp`
-
-## Steps Remaining
-- Verify the comparison builds with:
+- Kept the two MPU6050 variants directly comparable by environment only:
+  - `env:accsensor` now builds as the plain in-project filtered path
+  - `env:accsensorkalman` now builds as the Kalman comparison path
+  - both keep the same `ACCsensor` interface, shared-variable outputs, and debug-output shape
+- Verified the comparison builds with:
   - `pio run -j1 -e accsensor`
   - `pio run -j1 -e accsensorkalman`
-- Update `docs/VARIABLE_MODEL.md` so it explicitly documents the intended difference between the two MPU6050 environments as filter strategy rather than interface or variable contract.
-- Decide whether the plain-path filtering constants should remain internal implementation details or be documented as tuning parameters.
-- Move to the next unresolved variable semantics in dependency order:
-  - gyro noise handling review after build verification
-  - `calcSpeed`
-  - `calcDistance`
-- Draft the first concrete fusion-package split for `fuse*` producers once the raw and `calc*` variable semantics are stable enough.
+- Decided that the plain-path EMA constants remain internal implementation details for now rather than part of the documented variable contract.
+- Normalized `calcSpeed` to `mm/s` in both MPU6050 envs.
+- Normalized `calcDistance` to `mm` in both MPU6050 envs.
+- Verified the updated speed and distance semantics with:
+  - `pio run -j1 -e accsensor`
+  - `pio run -j1 -e accsensorkalman`
+- Defined the concrete boundary between current `calc*` motion estimates and future `fuse*` motion estimates.
+- Documented the first concrete fusion-package split:
+  - `clearance_fusion` for fast decision gating
+  - `pose_fusion` for slower best-estimate pose and motion outputs
+
+## In Progress
+- Close the current variable-model task cleanly in the task files now that the main deliverables are in place.
+
+## Steps Remaining
+- Decide in a later task whether heading and motion confidence should be represented explicitly in future shared variables.
 
 ## Definition Of Done
 - Variable naming classes, units, and meanings are documented clearly enough that another programmer or agent can use them correctly.

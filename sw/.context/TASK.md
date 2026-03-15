@@ -25,6 +25,10 @@ Formalize the shared variable model used by `setget` so variable names, units, m
 - Normalized the MPU6050 temperature path so `rawTemp` now has an explicit datasheet-based `degC10` meaning in code rather than an undocumented approximate formula, and cleaned the `z_main_accsensor*` debug output so it no longer prints misleading derived units for the still-ambiguous gyro and `calc*` values.
 - Normalized the MPU6050 gyro path so `rawGyX`, `rawGyY`, and `rawGyZ` are now stored consistently as `deg/s * 10`, and `calcHeading` is now stored as `deg * 10`. The remaining MPU6050 ambiguity is the inherited hardcoded gyro Z bias correction, not the unit itself.
 - Replaced the inherited hardcoded MPU6050 gyro Z bias correction with a startup `zeroGz` calibration average in both accelerometer paths, keeping the shared variable names stable while removing one of the largest remaining 6050 heuristics.
+- Normalized `calcSpeed` so it is now stored as forward speed in `mm/s`, derived from filtered MPU6050 X-axis acceleration at the configured `+-2g` range.
+- Normalized `calcDistance` so it is now stored as forward travel in `mm`, derived from the average of old and new `calcSpeed` over elapsed milliseconds.
+- Defined the first concrete `calc*` versus `fuse*` boundary: `calcHeading`, `calcSpeed`, and `calcDistance` remain local inertial estimates, while later planner-facing best estimates belong in future `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked`.
+- Defined the first concrete fusion-package split: `clearance_fusion` for fast movement-clearance outputs and `pose_fusion` for slower best-estimate motion and pose outputs.
 
 ## Task Plan
 1. Inventory the current `setget` variables and capture what each one is supposed to mean today, including unit, sign convention, and whether it is configuration-dependent.
@@ -44,6 +48,5 @@ Formalize the shared variable model used by `setget` so variable names, units, m
 - A reusable illustration prompt exists for visualizing the truck data structures and variable flows.
 
 ## Immediate Next Actions
-- Review whether the current MPU6050 path needs a simple gyro filter or averaging step in addition to the new startup bias calibration, because drift and noise are now the main remaining issues.
-- Tighten any remaining variable names or comments whose current wording still implies stronger unit certainty than the code really provides.
-- Prepare the first concrete fusion-package stub plan based on the documented fast-clearance and slower pose-fusion split.
+- This task is now ready to close.
+- The next task should be chosen by the user or moved from the current backlog.

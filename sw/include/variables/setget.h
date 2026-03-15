@@ -28,8 +28,8 @@ typedef enum {
     rawGyZ,         // Gyro Z yaw rate in deg/s * 10, including the current project bias correction.
     rawLidarFront,  // Reserved front lidar distance, intended to be mm when activated.
     calcHeading,    // Current integrated heading estimate in deg * 10.
-    calcSpeed,      // Current integrated forward speed estimate. Stored scale is still being formalized.
-    calcDistance,   // Current integrated forward distance estimate. Intended to represent travel distance.
+    calcSpeed,      // Current integrated forward speed estimate in mm/s.
+    calcDistance,   // Current integrated forward distance estimate in mm.
     calcXpos,       // Reserved X position in world/map frame.
     calcYpos,       // Reserved Y position in world/map frame.
     mapObservedPosePacked,      // Packed x,y,direction,speed bytes. -128 in any field means unknown.

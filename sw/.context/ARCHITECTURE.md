@@ -46,6 +46,13 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - reserved variables that have a name but no active producer yet
   - deferred variables whose subsystem concept exists but is not active in the runtime
 - Future fusion work should not write directly back into ambiguous `calc*` meanings if a stable `fuse*` layer is more appropriate.
+- The working ownership boundary is now:
+  - `calc*` = fast local estimates from one sensor family or one short processing chain
+  - `fuse*` = decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints
+- For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid `calc*` values because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
+- The first intended fusion package split is:
+  - `clearance_fusion`: fast direction-clearance outputs such as `fuseForwardClear`
+  - `pose_fusion`: slower best-estimate motion and pose outputs such as `fuseHeadingDeg10` and `fusePosePacked`
 
 ## Integration Status
 - Some capabilities such as OTA and related infrastructure may exist in branches or prior work by other contributors, but they are not yet considered integrated into the working architecture for this local development flow.
