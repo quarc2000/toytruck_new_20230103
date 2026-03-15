@@ -23,11 +23,11 @@ typedef enum {
     rawAccY,        // Lateral accelerometer value in raw MPU6050 counts.
     rawAccZ,        // Vertical accelerometer value in raw MPU6050 counts.
     rawTemp,        // Temperature estimate, currently stored as tenths of degrees C.
-    rawGyX,         // Gyro X value in the current project-specific stored scale. See VARIABLE_MODEL.md.
-    rawGyY,         // Gyro Y value in the current project-specific stored scale. See VARIABLE_MODEL.md.
-    rawGyZ,         // Gyro Z yaw-rate value in the current project-specific stored scale with current biasing.
+    rawGyX,         // Gyro X rate in deg/s * 10.
+    rawGyY,         // Gyro Y rate in deg/s * 10.
+    rawGyZ,         // Gyro Z yaw rate in deg/s * 10, including the current project bias correction.
     rawLidarFront,  // Reserved front lidar distance, intended to be mm when activated.
-    calcHeading,    // Current integrated heading estimate. Stored scale is still being formalized.
+    calcHeading,    // Current integrated heading estimate in deg * 10.
     calcSpeed,      // Current integrated forward speed estimate. Stored scale is still being formalized.
     calcDistance,   // Current integrated forward distance estimate. Intended to represent travel distance.
     calcXpos,       // Reserved X position in world/map frame.

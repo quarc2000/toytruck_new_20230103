@@ -11,7 +11,7 @@
 
 ## Medium Term
 - Update the actual variable declarations, comments, and supporting docs so they match the formal model.
-- Normalize the most ambiguous current units in dependency order: `rawTemp`, `rawGy*`, `calcHeading`, `calcSpeed`, then `calcDistance`.
+ - Normalize the remaining ambiguous current semantics in dependency order: gyro-Z bias handling, `calcSpeed`, then `calcDistance`.
 - Introduce the first fusion package or task structure once the variable taxonomy is agreed.
 - Restore mapping work on top of the clarified variable model instead of the older ad hoc shared-state meanings.
 

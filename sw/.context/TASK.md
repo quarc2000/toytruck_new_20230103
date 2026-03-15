@@ -22,6 +22,8 @@ Formalize the shared variable model used by `setget` so variable names, units, m
 - Cleaned the active build set, stabilized sandboxed PlatformIO builds with the archive-retry workaround, confined direct `Wire` usage to `src/task_safe_wire.cpp`, and cleaned the active warning reports.
 - Created `docs/VARIABLE_MODEL.md` as the first standalone shared-variable reference. It now documents the current variables in table form with stable documentation IDs, meaning, source, unit intent, encoding notes, reserved or deferred status, and an initial illustration prompt.
 - Updated `include/variables/setget.h` comments so the enum no longer claims stale units as if they were settled facts, and added a maintenance rule in `AGENTS.md` requiring future variable changes to update `docs/VARIABLE_MODEL.md` in the same work item.
+- Normalized the MPU6050 temperature path so `rawTemp` now has an explicit datasheet-based `degC10` meaning in code rather than an undocumented approximate formula, and cleaned the `z_main_accsensor*` debug output so it no longer prints misleading derived units for the still-ambiguous gyro and `calc*` values.
+- Normalized the MPU6050 gyro path so `rawGyX`, `rawGyY`, and `rawGyZ` are now stored consistently as `deg/s * 10`, and `calcHeading` is now stored as `deg * 10`. The remaining MPU6050 ambiguity is the inherited hardcoded gyro Z bias correction, not the unit itself.
 
 ## Task Plan
 1. Inventory the current `setget` variables and capture what each one is supposed to mean today, including unit, sign convention, and whether it is configuration-dependent.
@@ -41,6 +43,6 @@ Formalize the shared variable model used by `setget` so variable names, units, m
 - A reusable illustration prompt exists for visualizing the truck data structures and variable flows.
 
 ## Immediate Next Actions
-- Decide whether the next pass should stay documentation-only or start normalizing code semantics beginning with `rawTemp`.
+- Decide whether the current hardcoded gyro Z bias correction should become a documented calibration variable instead of an embedded constant.
 - Tighten any remaining variable names or comments whose current wording still implies stronger unit certainty than the code really provides.
 - Prepare the first concrete fusion-package stub plan based on the documented fast-clearance and slower pose-fusion split.

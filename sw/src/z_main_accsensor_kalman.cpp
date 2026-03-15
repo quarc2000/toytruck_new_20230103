@@ -24,29 +24,21 @@ void loop(){
     Serial.print(globalVar_get(rawAccY));
     Serial.print("   AZ:");
     Serial.println(globalVar_get(rawAccZ));
-    // Serial.print("Temp:");
+    // Serial.print("Temp (stored degC10): ");
     // Serial.println(globalVar_get(rawTemp));
-    // Serial.print("GX:");
-    // Serial.print(globalVar_get(rawGyX) / 131); // degrees per second turn speed
-    // Serial.print("   GY:");
-    // Serial.print(globalVar_get(rawGyY) / 131);
-    // Serial.print("   GZ:");
-    // Serial.print(globalVar_get(rawGyZ) / 131); // this is the turning axle.
-    // Serial.print("   GZraw:");
-    // Serial.println(globalVar_get(rawGyZ)); // this is the turning axle.
+    // Serial.print("GX (deg/s*10): ");
+    // Serial.print(globalVar_get(rawGyX));
+    // Serial.print("   GY (deg/s*10): ");
+    // Serial.print(globalVar_get(rawGyY));
+    // Serial.print("   GZ (deg/s*10): ");
+    // Serial.println(globalVar_get(rawGyZ));
     // Serial.println();
-    // Serial.print("Heading: ");
+    // Serial.print("Heading (deg*10): ");
     // Serial.print(globalVar_get(calcHeading));
-    // Serial.print("   Distance: ");
+    // Serial.print("   Distance (stored scale): ");
     // Serial.print(globalVar_get(calcDistance));
-    // Serial.print("   Distance (cm): ");
-    // Serial.print(globalVar_get(calcDistance)/1000);
-    // Serial.print("   Speed: ");
+    // Serial.print("   Speed (stored scale): ");
     // Serial.print(globalVar_get(calcSpeed));
-    // Serial.print("   Speed (cm/s): ");
-    // Serial.print(globalVar_get(calcSpeed)/(8*2048));
-    // Serial.print("   Represents (km/h): ");
-    // Serial.print(globalVar_get(calcSpeed)*20*3.6/(8*2048)/100);
     // Serial.println();
     // Serial.println();
     vTaskDelay(pdMS_TO_TICKS(270));
