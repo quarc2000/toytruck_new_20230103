@@ -1,70 +1,29 @@
 # Plan
 
 ## Steps Completed
-- Switched the active task from variable-model formalization to the first minimal real fusion implementation.
-- Added `fuseForwardClear` to `setget`.
-- Added the initial fusion module and verified `hwtest`.
-- Refactored fusion into one `fusion` package with helper logic plus one `FusionService`.
-- Verified the refactored `hwtest` build.
-- Updated the docs and context so they describe the new one-package/two-cadence fusion model.
-- Prepared the reusable architecture-illustration prompt for handoff.
-- Identified the first live MPU6050 estimator failure mode from hardware testing.
-- Fixed heading integration to use task-local timing and a small yaw deadband.
-- Made `calcSpeed` and `calcDistance` safe by holding them at `0`.
-- Verified `accsensor` and `accsensorkalman` compile.
-- Flashed the corrected `accsensor` build to the truck and got a first plausible heading retest.
-- Added `zeroAy` and `zeroAz` and changed both MPU6050 envs to center `AX`, `AY`, and `AZ` at startup.
-- Verified `accsensor` and `accsensorkalman` still compile after the full 3-axis accelerometer centering change.
-- Added stronger accelerometer damping and slow stationary zero tracking.
-- Reflashed `accsensor` and confirmed on hardware that the plain path now looks good enough to proceed to forward-motion estimation.
-- Implemented a conservative plain-path forward speed and distance estimator in `src/sensors/accsensor.cpp`.
-- Verified `env:accsensor` compiles successfully with the new estimator.
-- Updated the debug output and variable docs so they describe the plain/Kalman split honestly.
-- Reworked the estimator so it uses filtered pre-deadband acceleration for motion estimation while keeping deadbanded values on the bus for display stability.
-- Rebuilt and reflashed `accsensor` successfully after that correction.
-- Softened the stationary response by requiring sustained stillness before zeroing speed and weakening the leakage.
-- Rebuilt and reflashed `accsensor` successfully after the stationary-response tuning.
-- Strengthened the sustained-stillness stop decay so speed settles to `0` cleanly after a stop.
-- Rebuilt and reflashed `accsensor` successfully after the stop-decay tuning.
-- Reduced active-motion underestimation by increasing the motion gain and weakening leakage during real movement.
-- Rebuilt and reflashed `accsensor` successfully after the active-motion tuning.
-- Reverted the last low-motion and reversal experiment after live testing showed it was worse than the previous version.
-- Added the MPU6050-only speed and distance limitation to the backlog as deferred experimental work.
-- Rebuilt and reflashed the reverted `accsensor` version successfully.
-- Built `env:expander` successfully.
-- Flashed `env:expander` successfully to `COM7`.
-- Updated `src/z_main_expander.cpp` so pins `8` and `9` blink explicitly for indicator discovery.
-- Fixed `src/expander.cpp` so pins `8` and `9` are configured as outputs and GPIO writes preserve the rest of the MCP23017 port.
-- Rebuilt and reflashed `env:expander` successfully after the expander implementation fix.
-- Extended the simple expander test so brake light pin `1` is asserted during the idle/deceleration part of the blink cycle.
-- Rebuilt and reflashed `env:expander` successfully after adding brake light pin `1` to the test pattern.
-- Reworked the simple expander test into dedicated phases for pin `0`, pin `1`, pin `8`, and pin `9` so the harness can be verified directly.
-- Rebuilt `env:expander` successfully with the explicit four-phase light test.
-- Confirmed that the test harness is good enough to move from manual GPIO phasing to a real light-control task.
-- Added `include/lights/light_service.h` and `src/lights/light_service.cpp` as the first real expander-backed light-control task.
-- Updated `src/expander.cpp` so reverse light pin `11` is also configured as an output.
-- Wired the light service into `src/z_main_hw-test.cpp` and `env:hwtest`.
-- Verified `env:hwtest` compiles successfully with the new light service.
-- Flashed `env:hwtest` successfully to the truck with the integrated light service.
-- Added `basic_logger` and `basic_web_server` under `include/basic_telemetry` and `src/basic_telemetry`.
-- Added the safe stationary `src/z_main_basic_telemetry.cpp` test entry point.
-- Added `env:basictelemetry` and verified it compiles successfully.
-- Configured the basic web server to always start a direct debug AP and also attempt station-mode connection.
-- Flashed `env:basictelemetry` successfully to the truck.
-- Updated `.context/resources/boards/IO_EXPANDER.md` with the recent verified lighting and expander findings.
-- Simplified the telemetry Wi‑Fi behavior again to AP-only with fixed SSID `ToyTruckDebug`, and verified that variant compiles successfully.
+- Closed the dedicated VL53L0X-through-expander bring-up task with working hardware confirmation on channels `1` and `2`.
+- Confirmed there is no existing `VL53L5CX` code in the repository, so this must be treated as a fresh bring-up rather than a minor extension.
+- Reviewed the local `VL53L5CX` references and added a first chip note at `.context/resources/chip_notes/VL53L5CX.md` covering address conventions, `LPn`, ULD-style initialization, and a minimal first-read strategy.
+- Tightened `.context/resources/chip_notes/VL53L5CX.md` so it now explicitly captures the practical address notation, `LPn` / `INT` role, the fact that setup is ULD-driven rather than a tiny register list, and the first useful data-read flow.
+- Inspected the existing dedicated `VL53L0X` mux test and confirmed it is the right structural baseline: isolated env, explicit mux channel selection, no drivetrain code, and serial output focused on clear bring-up status.
+- Re-scoped the implementation after user direction: no external `VL53L5CX` library; the bring-up must use repo-local code and `task_safe_wire`.
+- Added a first repo-local custom helper at `include/sensors/vl53l5cx_basic.h` and `src/sensors/vl53l5cx_basic.cpp` with task-safe `0x29` probe plus 16-bit register read and write primitives.
+- Added a dedicated `env:vl53l5cxmuxtest` and updated `src/z_main_vl53l5cx_mux_test.cpp` so it selects mux channel `2` and repeatedly probes the sensor through the expander path using only repo-local code.
+- Verified `pio run -j1 -e vl53l5cxmuxtest` succeeds with the custom no-library path.
+- Flashed `env:vl53l5cxmuxtest` successfully to `COM7` and confirmed on hardware that the connected `VL53L5CX` acknowledges reliably on expander mux channel `2` at address `0x29`.
+- Extended the custom helper and test beyond plain `ACK`: `Vl53l5cxBasic` now reads the public ST device ID register at `0x010F`, and `pio run -j1 -e vl53l5cxmuxtest` still succeeds with that change.
 
 ## In Progress
-- Flash the fixed-SSID AP-only `basictelemetry` build to the truck.
+- Use the new task-safe custom helper as the base bring-up path and determine the next smallest step beyond plain I2C ACK toward actual ranging.
 
 ## Steps Remaining
-- Verify the Wi‑Fi connection path and web outputs on a client device.
-- Record the connection details and any follow-up improvements needed for the web UI or logger.
+- Extract or reconstruct the minimum additional `VL53L5CX` init and readout sequence needed for a first real frame without introducing an external library.
+- Flash the updated ID-reading build and confirm the `0x010F` device ID value on hardware.
+- Extend the custom helper from ID-check to useful ranging output.
+- Rebuild, flash, and confirm useful readout through the expander-mux path.
 
 ## Definition Of Done
-- `calcHeading` has a clear local integration basis and behaves plausibly in live testing.
-- The simple expander test builds and flashes successfully.
-- The first expander hardware behavior has been observed.
-- The next expander-specific follow-up is clear from that observation.
-- A real light-control task is running on hardware through the expander path.
-- A basic Wi-Fi debug page exists for untethered truck diagnostics.
+- A dedicated `VL53L5CX` bring-up path exists.
+- The code builds successfully.
+- The code flashes successfully.
+- The test reads useful data from the connected `VL53L5CX` through the expander-mux path.

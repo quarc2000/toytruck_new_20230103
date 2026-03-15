@@ -41,7 +41,11 @@ pio run -e usensor
   - `.\pio-local.ps1` correctly redirects PlatformIO home, platforms, and packages into `.platformio-local` for the current shell session.
   - `pio run -e maptest` succeeds when run in the same shell session after sourcing `.\pio-local.ps1`.
   - `pio run -e maptest -t clean` succeeds directly.
-- The local-cache workflow is sufficient to complete at least the focused `maptest` build in this sandbox, and earlier verification also showed compilation progress for `usensor` and `hwtest`.
-- In the current sandbox, full builds may still fail later when `xtensa-esp32-elf-ar` or `xtensa-esp32-elf-ranlib` try to rename generated archive files under `.pio\build\...`, reporting `Permission denied`.
-- If archive rename failures occur, clearing the affected `.pio\build\<env>` directory with `cmd /c rmdir /s /q .pio\build\<env>` before retrying is a safe cleanup step that works in this shell when some PowerShell `Remove-Item` invocations are policy-blocked.
+- The local-cache workflow is sufficient for focused builds and uploads in this sandbox when the shell first sources `.\pio-local.ps1`.
+- The repo now carries the working Windows archive workaround:
+  - `platformio.ini` uses `build_dir = .pio-build`
+  - `platformio.ini` loads `extra_scripts = pre:tools/pio_retry_archives.py`
+  - `tools/pio_retry_archives.py` overrides SCons `ARCOM` and `RANLIBCOM`
+  - `tools/retry-ar.cmd` and `tools/retry-ranlib.cmd` retry transient archive-tool failures
+- The detailed source of truth for this workflow is `.context/resources/AGENTS_AND_PLATFORMIO.md`. Future agents should use that file instead of trying to reconstruct the workaround from shell history.
 - Treat `.platformio-local` as a disposable workspace cache. Recreate or refresh it from the installed PlatformIO packages if it becomes stale or incomplete.

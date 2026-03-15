@@ -46,7 +46,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - Always log major changes/understandings in `.context/PROJECT_HISTORY.md`.
 - Keep `.context/STATE.md` current as working memory for the current task only.
 - Keep `.context/PLAN.md` current enough that another agent can resume from it without re-discovery.
-- Keep `.context/TASK.md` aligned with the real active task and immediate next actions.
+- Keep `.context/TASK.md` aligned with the real active task definition only.
 - Update `.context/ARCHITECTURE.md` whenever architecture/buffer-model/state-machine decisions change.
 - If anything in resources appears incorrect, ask the user before changing it.
 
@@ -74,7 +74,15 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - `.context/STATE.md` should map directly to the `In Progress` section of `.context/PLAN.md` and act as the compact live memory for that active subtask.
 - If `PLAN.md` and `STATE.md` drift apart, the agent MUST bring them back into alignment immediately.
 - Append to `.context/PROJECT_HISTORY.md` after significant work.
-- Keep `.context/TASK.md` current with active task and next steps.
+- `.context/TASK.md` is the task definition, not the execution log.
+- `.context/TASK.md` should stay short and stable during task execution.
+- `.context/TASK.md` should contain only:
+  - the active task statement
+  - scope or constraints that define the task
+  - definition of done
+- `.context/TASK.md` MUST NOT accumulate completed-step history, debugging notes, or progress narrative. Those belong in `.context/PLAN.md` and `.context/PROJECT_HISTORY.md`.
+- If there is no active task, `.context/TASK.md` should say that plainly and remain minimal.
+- Execution progress, subtask status, and next implementation steps belong in `.context/PLAN.md`.
 - Keep resource files updated via `.context/resources/README.md` index.
 - Use the root `CONFLICTS.md` as the formal conflict register and keep it in table format.
 - Use the root `DECISIONS.md` to log significant project decisions, especially around conflicts, deviations, and architectural direction. Do not use it for context-maintenance housekeeping or backlog-only deferrals.

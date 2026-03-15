@@ -94,3 +94,5 @@ These notes must stay useful to both humans and agents:
 ## Current Notes
 
 - [MPU6050.md](./MPU6050.md) - current project usage, variable semantics, and known quirks for the accelerometer or gyro path.
+- [PCA9685.md](./PCA9685.md) - PWM-controller bring-up notes covering sleep and restart behavior, prescale sequencing, auto-increment requirements, and practical `50 Hz` servo setup facts.
+- [VL53L5CX.md](./VL53L5CX.md) - first-bring-up notes for the multizone ToF sensor, including address conventions, `LPn`, ULD-heavy initialization, and a practical minimal first-read strategy.

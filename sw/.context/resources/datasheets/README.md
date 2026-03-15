@@ -45,9 +45,16 @@ So this directory should be treated as:
 |---|---|---|---|---|---|
 | `HMC5883L` | Legacy compass path used by `compass.cpp` and older board notes | Legacy or deferred | Honeywell PDF mirror surfaced by search | not mirrored | [Original source](https://www.mouser.com/datasheet/2/187/hmc5883l-347289.pdf) |
 
+## Module-Level References
+
+| Module | Role In This Project | Status | Source Type | Local File | Source URL |
+|---|---|---|---|---|---|
+| `TOF Laser Range Sensor Mini` | Candidate long-range indoor height or ceiling-mapping sensor | Planned or future | Waveshare product page and wiki | not mirrored | [Product page](https://www.waveshare.com/tof-laser-range-sensor-mini.htm), [Wiki](https://www.waveshare.com/wiki/TOF_Laser_Range_Sensor_Mini) |
+
 ## Notes
 
 - `GY271` is a module name, not a chip name. Current code and board notes suggest a `QMC5883L`-style device at `0x0D`.
+- `TOF Laser Range Sensor Mini` is also treated here as a module name, not a clearly identified bare chip. The vendor documentation exposes module-level protocol behavior and I2C addressing rather than a standard chip datasheet.
 - `HMC5883L` still appears in legacy code paths and board notes, so both magnetometer datasheet paths are retained here until the project fully settles on one implementation.
 - `VL53L0X` is referenced in test or bring-up code on the IO expander path; `VL53L5CX` is the more important future mapping sensor.
 - The active runtime today does not imply every listed chip is mounted on the current truck.
