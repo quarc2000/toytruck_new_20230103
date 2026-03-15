@@ -1,42 +1,45 @@
 # Plan
 
 ## Steps Completed
-- Defined the shared-variable task scope and switched the active task from general cleanup to variable-model formalization.
-- Created `docs/VARIABLE_MODEL.md` as the current source-of-truth for shared-variable IDs, meaning, units, encoding, and future `fuse*` placeholders.
-- Updated `include/variables/setget.h` comments to align better with the variable model.
-- Normalized MPU6050 temperature semantics so `rawTemp` is stored as `degC10`.
-- Normalized MPU6050 gyro semantics so `rawGyX`, `rawGyY`, and `rawGyZ` are stored as `deg/s * 10`.
-- Normalized `calcHeading` so it is stored as `deg * 10`.
-- Replaced the old hardcoded gyro-Z bias with startup `zeroGz` calibration in both MPU6050 code paths.
-- Added datasheet and chip-note resource structure, including the first `MPU6050.md` chip note with tightened chip-only scope.
-- Kept the two MPU6050 variants directly comparable by environment only:
-  - `env:accsensor` now builds as the plain in-project filtered path
-  - `env:accsensorkalman` now builds as the Kalman comparison path
-  - both keep the same `ACCsensor` interface, shared-variable outputs, and debug-output shape
-- Verified the comparison builds with:
-  - `pio run -j1 -e accsensor`
-  - `pio run -j1 -e accsensorkalman`
-- Decided that the plain-path EMA constants remain internal implementation details for now rather than part of the documented variable contract.
-- Normalized `calcSpeed` to `mm/s` in both MPU6050 envs.
-- Normalized `calcDistance` to `mm` in both MPU6050 envs.
-- Verified the updated speed and distance semantics with:
-  - `pio run -j1 -e accsensor`
-  - `pio run -j1 -e accsensorkalman`
-- Defined the concrete boundary between current `calc*` motion estimates and future `fuse*` motion estimates.
-- Documented the first concrete fusion-package split:
-  - `clearance_fusion` for fast decision gating
-  - `pose_fusion` for slower best-estimate pose and motion outputs
+- Switched the active task from variable-model formalization to the first minimal real fusion implementation.
+- Added `fuseForwardClear` to `setget`.
+- Added the initial fusion module and verified `hwtest`.
+- Refactored fusion into one `fusion` package with helper logic plus one `FusionService`.
+- Verified the refactored `hwtest` build.
+- Updated the docs and context so they describe the new one-package/two-cadence fusion model.
+- Prepared the reusable architecture-illustration prompt for handoff.
+- Identified the first live MPU6050 estimator failure mode from hardware testing.
+- Fixed heading integration to use task-local timing and a small yaw deadband.
+- Made `calcSpeed` and `calcDistance` safe by holding them at `0`.
+- Verified `accsensor` and `accsensorkalman` compile.
+- Flashed the corrected `accsensor` build to the truck and got a first plausible heading retest.
+- Added `zeroAy` and `zeroAz` and changed both MPU6050 envs to center `AX`, `AY`, and `AZ` at startup.
+- Verified `accsensor` and `accsensorkalman` still compile after the full 3-axis accelerometer centering change.
+- Added stronger accelerometer damping and slow stationary zero tracking.
+- Reflashed `accsensor` and confirmed on hardware that the plain path now looks good enough to proceed to forward-motion estimation.
+- Implemented a conservative plain-path forward speed and distance estimator in `src/sensors/accsensor.cpp`.
+- Verified `env:accsensor` compiles successfully with the new estimator.
+- Updated the debug output and variable docs so they describe the plain/Kalman split honestly.
+- Reworked the estimator so it uses filtered pre-deadband acceleration for motion estimation while keeping deadbanded values on the bus for display stability.
+- Rebuilt and reflashed `accsensor` successfully after that correction.
+- Softened the stationary response by requiring sustained stillness before zeroing speed and weakening the leakage.
+- Rebuilt and reflashed `accsensor` successfully after the stationary-response tuning.
+- Strengthened the sustained-stillness stop decay so speed settles to `0` cleanly after a stop.
+- Rebuilt and reflashed `accsensor` successfully after the stop-decay tuning.
+- Reduced active-motion underestimation by increasing the motion gain and weakening leakage during real movement.
+- Rebuilt and reflashed `accsensor` successfully after the active-motion tuning.
+- Reverted the last low-motion and reversal experiment after live testing showed it was worse than the previous version.
+- Added the MPU6050-only speed and distance limitation to the backlog as deferred experimental work.
 
 ## In Progress
-- Close the current variable-model task cleanly in the task files now that the main deliverables are in place.
+- Rebuild and reflash the reverted `accsensor` version.
 
 ## Steps Remaining
-- Decide in a later task whether heading and motion confidence should be represented explicitly in future shared variables.
+- Confirm the truck is back on the reverted `accsensor` build.
+- Switch the active task to the expander path and define the first narrow verification step there.
 
 ## Definition Of Done
-- Variable naming classes, units, and meanings are documented clearly enough that another programmer or agent can use them correctly.
-- Variable documentation IDs and series ranges are defined clearly enough that future additions have an obvious home.
-- Existing variable comments and declarations no longer rely on hidden assumptions about sensor configuration.
-- A `docs/` variable reference exists and is strong enough to become a maintained source of truth for future variable changes.
-- The conceptual place for `fuse*` variables and their producer tasks is documented.
-- A reusable illustration prompt exists for communicating the truck data structures visually.
+- `calcHeading` has a clear local integration basis and behaves plausibly in live testing.
+- The last acceptable `accsensor` version is restored on the truck.
+- The inertial-only speed and distance limitation is explicitly deferred.
+- The active work is ready to move on to the expander path.

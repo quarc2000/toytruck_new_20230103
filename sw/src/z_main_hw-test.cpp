@@ -4,6 +4,7 @@
 #include <actuators/motor.h>
 #include <actuators/steer.h>
 #include <sensors/usensor.h>
+#include <fusion/fusion_service.h>
 #include <atmio.h>
 
 // Create vectors for the ultrasound sensor pins
@@ -14,6 +15,7 @@ long int age;
 
 Usensor ultraSound;
 ACCsensor asens;
+FusionService fusionService;
 
 Motor drive;
 Steer steer;
@@ -40,6 +42,8 @@ void setup()
 	Serial.println(ultraSound.open(TRIGGER_PIN2, ECHO_PIN2, rawDistRight));
 	Serial.println(ultraSound.open(TRIGGER_PIN3, ECHO_PIN3, rawDistLeft));
 	Serial.println(ultraSound.open(TRIGGER_PIN4, ECHO_PIN4, rawDistBack));  
+    vTaskDelay(pdMS_TO_TICKS(100));
+    fusionService.Begin();
     vTaskDelay(pdMS_TO_TICKS(100));
 }
 
@@ -74,6 +78,8 @@ void loop()
     Serial.print("  Back: ");
     Serial.print(globalVar_get(rawDistBack, &age));
     Serial.println(" cm (");
+    Serial.print("Forward clearance fuse: ");
+    Serial.println(globalVar_get(fuseForwardClear));
     vTaskDelay(pdMS_TO_TICKS(1000));
     drive.driving(100);
     vTaskDelay(pdMS_TO_TICKS(1000));

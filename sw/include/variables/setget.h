@@ -11,6 +11,8 @@
 // The detailed source-of-truth for meaning, units, IDs, and status now lives in docs/VARIABLE_MODEL.md.
 typedef enum {
     zeroAx,         // Forward accelerometer zero offset in raw MPU6050 counts.
+    zeroAy,         // Lateral accelerometer zero offset in raw MPU6050 counts.
+    zeroAz,         // Vertical accelerometer zero offset in raw MPU6050 counts.
     zeroGz,         // Gyro Z zero offset in raw MPU6050 counts from startup averaging.
     rawDistLeft,    // Left ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistFront,   // Front ultrasonic distance in cm. 199 is also timeout/out-of-range.
@@ -22,10 +24,10 @@ typedef enum {
     rawAccX,        // Forward accelerometer value in raw MPU6050 counts after zero-offset correction.
     rawAccY,        // Lateral accelerometer value in raw MPU6050 counts.
     rawAccZ,        // Vertical accelerometer value in raw MPU6050 counts.
-    rawTemp,        // Temperature estimate, currently stored as tenths of degrees C.
-    rawGyX,         // Gyro X rate in deg/s * 10.
-    rawGyY,         // Gyro Y rate in deg/s * 10.
-    rawGyZ,         // Gyro Z yaw rate in deg/s * 10, including the current project bias correction.
+    rawTemp,        // Stored raw-data form of temperature, currently encoded as degC * 10.
+    rawGyX,         // Stored raw-data form of gyro X, encoded as deg/s * 10.
+    rawGyY,         // Stored raw-data form of gyro Y, encoded as deg/s * 10.
+    rawGyZ,         // Stored raw-data form of gyro Z, encoded as deg/s * 10 after zero-offset correction.
     rawLidarFront,  // Reserved front lidar distance, intended to be mm when activated.
     calcHeading,    // Current integrated heading estimate in deg * 10.
     calcSpeed,      // Current integrated forward speed estimate in mm/s.
@@ -36,6 +38,7 @@ typedef enum {
     mapProgrammedPosePacked,    // Packed x,y,direction,speed bytes. -128 in any field means unknown.
     mapObservedCellSizeMm,      // Observed-map cell size in mm per cell.
     mapProgrammedCellSizeMm,    // Programmed-map cell size in mm per cell.
+    fuseForwardClear,           // Forward-clearance fusion state: -1 unknown, 0 blocked, 1 clear.
     steerDirection,             // Steering command in the normalized range -100 to +100.
     //>>> Robot - DRIVER
     driver_driverActivity,      // Reserved driver-mode/activity code for the future Driver layer.

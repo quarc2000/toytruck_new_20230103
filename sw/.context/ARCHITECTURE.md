@@ -50,9 +50,19 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - `calc*` = fast local estimates from one sensor family or one short processing chain
   - `fuse*` = decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints
 - For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid `calc*` values because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
-- The first intended fusion package split is:
-  - `clearance_fusion`: fast direction-clearance outputs such as `fuseForwardClear`
-  - `pose_fusion`: slower best-estimate motion and pose outputs such as `fuseHeadingDeg10` and `fusePosePacked`
+- Fusion now lives under one `src/fusion` package rather than being split into separate package owners too early.
+- `src/fusion/fusion_service.cpp` owns two cadences:
+  - a fast fusion task, currently `10 Hz`, for near-term clearance gating
+  - a slow fusion task, currently `1 Hz`, as the future home for pose and map fusion
+- Helper files under the same package hold narrow rule logic without owning task lifecycle themselves.
+- The first live `fuse*` implementation now exists:
+  - `fuseForwardClear` is published by the fast fusion task in `src/fusion/fusion_service.cpp`
+  - `src/fusion/clearance_fusion.cpp` now provides helper logic only
+  - current rule is intentionally minimal and conservative:
+    - blocked if a known forward sensor reports too little clearance
+    - clear if at least one known forward sensor reports enough clearance and none report blocked
+    - unknown if no current forward sensor is trustworthy
+- This first step is deliberately limited to fast forward-clearance gating. The slow fusion task is present as a stub so future pose and map fusion can be added without changing package ownership again.
 
 ## Integration Status
 - Some capabilities such as OTA and related infrastructure may exist in branches or prior work by other contributors, but they are not yet considered integrated into the working architecture for this local development flow.

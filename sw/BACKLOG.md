@@ -18,3 +18,4 @@
 - Define and implement pose tracking and alignment updates between observed and programmed maps.
 - Add VL53L5 point-cloud projection rules into the 2D occupancy map once that hardware path is active.
 - Explore an indoor ceiling-map layer for navigation using a long-range TOF sensor, analogous to an echosounder map in a boat. This could provide an additional overhead reference map for indoor driving and later fusion with the floor-plane or wall map.
+- Revisit MPU6050-only longitudinal speed and distance estimation later as experimental work. Recent tuning improved some cases but remained non-linear, directionally unstable under reversals, and too sensitive to acceleration transients. For now, heading is useful; true speed and distance should later come from fusion or another sensor path rather than trusting inertial-only integration.
