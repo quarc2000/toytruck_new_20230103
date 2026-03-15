@@ -20,23 +20,27 @@ Formalize the shared variable model used by `setget` so variable names, units, m
 - Recorded that `src/actuators/light.cpp` was deleted because it does not match the active truck hardware path.
 - Confirmed that after pruning the stale environments, the remaining active build failures are dominated by the intermittent archive rename permission issue plus a defined set of code warnings in active modules.
 - Cleaned the active build set, stabilized sandboxed PlatformIO builds with the archive-retry workaround, confined direct `Wire` usage to `src/task_safe_wire.cpp`, and cleaned the active warning reports.
+- Created `docs/VARIABLE_MODEL.md` as the first standalone shared-variable reference. It now documents the current variables in table form with stable documentation IDs, meaning, source, unit intent, encoding notes, reserved or deferred status, and an initial illustration prompt.
+- Updated `include/variables/setget.h` comments so the enum no longer claims stale units as if they were settled facts, and added a maintenance rule in `AGENTS.md` requiring future variable changes to update `docs/VARIABLE_MODEL.md` in the same work item.
 
 ## Task Plan
 1. Inventory the current `setget` variables and capture what each one is supposed to mean today, including unit, sign convention, and whether it is configuration-dependent.
 2. Formalize the variable taxonomy so the naming tiers such as `raw`, `calc`, and future `fuse` variables are explicit and consistently defined.
-3. Identify variables whose units or meaning are currently uncertain because of sensor configuration, scaling, or historical drift, and mark those for correction rather than silently trusting old comments.
-4. Create a standalone variable reference document under `docs/` that lists the shared variables, their meaning, units, source, and how they are encoded in the current 32-bit `long` transport model.
-5. Define the first fusion-variable concept set, including examples such as `fuseForwardClear`, and outline the likely fusion package and task responsibilities.
-6. Produce a reusable prompt for generating a clear visual illustration of the truck data structures and variable flows.
+3. Add stable documentation IDs for the shared variables so they can be referenced independently of later renaming.
+4. Identify variables whose units or meaning are currently uncertain because of sensor configuration, scaling, or historical drift, and mark those for correction rather than silently trusting old comments.
+5. Create a standalone variable reference document under `docs/` that lists the shared variables, their meaning, units, source, IDs, and how they are encoded in the current 32-bit `long` transport model.
+6. Define the first fusion-variable concept set, including examples such as `fuseForwardClear`, and outline the likely fusion package and task responsibilities.
+7. Produce a reusable prompt for generating a clear visual illustration of the truck data structures and variable flows.
 
 ## Definition Of Done
 - The shared variable model has a clear naming and unit convention that another programmer or agent can follow without guessing.
+- The shared variable model has stable documentation IDs with reserved ranges for current and future variable classes.
 - Existing `setget` variables have documented meaning and unit intent, with uncertainties called out explicitly where sensor configuration still affects interpretation.
 - A standalone document under `docs/` exists with the current shared variable definitions, units, source, and encoding notes.
 - The future `fuse*` layer has an agreed conceptual place in the architecture.
 - A reusable illustration prompt exists for visualizing the truck data structures and variable flows.
 
 ## Immediate Next Actions
-- Review `include/variables/setget.h` and related code to inventory the current variable set and the existing partial unit comments.
-- Convert the current cleanup state into baseline assumptions for the new variable-management task.
-- Start a first formal variable-model note under `docs/` that can later drive both implementation cleanup and the illustration prompt.
+- Decide whether the next pass should stay documentation-only or start normalizing code semantics beginning with `rawTemp`.
+- Tighten any remaining variable names or comments whose current wording still implies stronger unit certainty than the code really provides.
+- Prepare the first concrete fusion-package stub plan based on the documented fast-clearance and slower pose-fusion split.

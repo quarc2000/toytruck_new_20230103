@@ -1,6 +1,16 @@
 # State
 
 ## Current Task Memory
+- The active task is now centered on formalizing the shared-variable model rather than changing code behavior.
+- The user wants the variable reference in table form and wants every shared variable to have a stable documentation ID.
+- The agreed ID ranges are: `0000` calibration or system, `1000` raw, `2000` calculated, `3000` fused, `4000` map, and `5000` driver or actuator.
+- The variable reference must distinguish active variables from reserved or deferred variables instead of pretending every enum member already has an implemented producer.
+- The current code strongly suggests that some existing unit comments are only approximate or stale, especially around gyro, heading, speed, distance, and temperature scaling.
+- The variable-management task now needs to produce both a source-of-truth variable table under `docs/` and a reusable illustration prompt for the truck data-flow model.
+- `docs/VARIABLE_MODEL.md` now exists as the first source-of-truth pass and already includes the agreed series IDs, current-variable tables, proposed first `fuse*` outputs, and an initial illustration prompt.
+- `include/variables/setget.h` comments now point at the variable model and no longer present the old ambiguous gyro, speed, and heading units as settled fact.
+- `AGENTS.md` now requires that future shared-variable changes update `docs/VARIABLE_MODEL.md` in the same work item.
+- The next valuable work is no longer "create the document" but "use the document to decide which ambiguous units should be normalized first and then bring code semantics into line in a controlled order."
 - Active task: formalize the shared variable model around `setget`, including naming tiers, units, meaning, and future fusion outputs.
 - Known active conflict: `CON-0001` tracks the current architecture-level task-safety gap around direct `Wire` usage without a project-wide approved synchronization model.
 - The repository uses multiple firmware entry points and reusable modules, so task-safety review must cover both reusable runtime modules and test or bring-up paths.

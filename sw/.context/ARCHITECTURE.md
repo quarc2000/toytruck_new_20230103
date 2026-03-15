@@ -29,6 +29,24 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - Architectural requirement: all code must be task safe. If any module is found to bypass task-safe access patterns, work must pause and the user must be asked for guidance before proceeding.
 - I2C access is a known architectural concern area and should be treated as requiring explicit task-safe wrapping or serialization.
 
+## Shared Variable Model
+- `setget` is the current shared-variable bus between tasks and remains the approved path for task-safe cross-task integer state exchange.
+- The transport payload is currently a signed 32-bit `long` on the active ESP32 target, so all shared values must define explicit integer scaling rather than relying on implicit floating-point meaning.
+- Shared variables are now being formalized into taxonomy bands rather than remaining as one flat enum with ad hoc comments.
+- The agreed documentation series are:
+  - `0000` calibration or system
+  - `1000` raw sensor
+  - `2000` calculated
+  - `3000` fused
+  - `4000` map or navigation
+  - `5000` driver or actuator
+- These IDs are documentation and architecture references first; they do not yet imply a wire protocol or enum-value renumbering.
+- The architecture should distinguish clearly between:
+  - active variables with current producers
+  - reserved variables that have a name but no active producer yet
+  - deferred variables whose subsystem concept exists but is not active in the runtime
+- Future fusion work should not write directly back into ambiguous `calc*` meanings if a stable `fuse*` layer is more appropriate.
+
 ## Integration Status
 - Some capabilities such as OTA and related infrastructure may exist in branches or prior work by other contributors, but they are not yet considered integrated into the working architecture for this local development flow.
 - Until those features are deliberately integrated, the baseline architecture should be described in terms of the currently maintained modules and build targets in this repository.
