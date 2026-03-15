@@ -62,7 +62,7 @@ Name prefixes should follow the same structure:
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 0001 | `zeroAx` | calibration | Forward-axis accelerometer zero offset used to bias-correct MPU6050 `AcX` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | The value is an average of startup samples, not a factory-calibrated bias. |
-| 0002 | `zeroGz` | calibration | Reserved gyro Z zero offset | intended raw gyro counts | signed 32-bit integer | none found in current code | Reserved | Exists in the enum but is not currently produced or consumed anywhere in `src` or `include`. |
+| 0002 | `zeroGz` | calibration | Gyro Z zero offset used to bias-correct MPU6050 yaw-rate readings | MPU6050 raw gyro counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This replaces the older hardcoded yaw-rate bias with a startup average stored in the shared bus. |
 
 ### Raw Sensor Values
 
@@ -81,14 +81,14 @@ Name prefixes should follow the same structure:
 | 1023 | `rawTemp` | raw | MPU6050 temperature estimate | tenths of degrees C | signed integer where `365` means `36.5 C` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 datasheet conversion in integer form and stores the result as `degC10`. |
 | 1030 | `rawGyX` | raw | Gyroscope X axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. |
 | 1031 | `rawGyY` | raw | Gyroscope Y axis | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Uses the MPU6050 default `131 LSB/dps` scale and stores `deg/s * 10`. |
-| 1032 | `rawGyZ` | raw | Gyroscope Z axis used for yaw-rate updates | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Stored in the same `deg/s * 10` unit as `rawGyX` and `rawGyY`, but still includes the historical `+2 dps` bias correction now represented as `+20` in the stored scale. |
+| 1032 | `rawGyZ` | raw | Gyroscope Z axis used for yaw-rate updates | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Stored in the same `deg/s * 10` unit as `rawGyX` and `rawGyY` after subtracting the startup `zeroGz` calibration. |
 | 1040 | `rawLidarFront` | raw | Reserved front lidar distance | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present for a future lidar path; no active producer today. |
 
 ### Calculated Values
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 2001 | `calcHeading` | calc | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is now integrated from `rawGyZ` using elapsed milliseconds into a stable `deg10` scale, but overall heading quality still depends on drift and the current hardcoded gyro Z bias correction. |
+| 2001 | `calcHeading` | calc | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is integrated from the startup-bias-corrected `rawGyZ` using elapsed milliseconds into a stable `deg10` scale, but overall heading quality still depends on drift and noise. |
 | 2002 | `calcSpeed` | calc | Integrated forward speed estimate from acceleration history | code-specific scaled integer, not yet stable SI | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The current code integrates corrected acceleration counts over elapsed milliseconds. Debug output interprets this through `/(8*2048)`, but the stored unit is not yet formally defined. |
 | 2003 | `calcDistance` | calc | Integrated forward travel estimate from `calcSpeed` over elapsed time | intended millimeters, but depends on current `calcSpeed` scaling | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Comment says millimeters, but this inherits all unit ambiguity from `calcSpeed`. |
 | 2004 | `calcXpos` | calc | Reserved X position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
@@ -134,13 +134,10 @@ These IDs are reserved as the first recommended fused outputs:
 
 The most important unresolved unit problems are:
 
-1. `rawGyZ`
-   It now shares the same `deg/s * 10` storage as the other gyro axes, but it still carries a hardcoded bias correction inherited from the older code.
-
-2. `calcSpeed`
+1. `calcSpeed`
    Current storage is an integration accumulator in project-specific scale, not yet a stable physical unit such as `mm/s`.
 
-3. `calcDistance`
+2. `calcDistance`
    Intended to be millimeters, but inherits uncertainty from `calcSpeed`.
 
 ## Recommended Next Formalization Steps
@@ -179,14 +176,12 @@ Why:
 
 If the next step moves from documentation into code semantics, the safest normalization order is:
 
-1. `rawGyZ`
-   Remove or replace the hardcoded Z-axis bias correction with a real calibration value if the project wants cleaner heading behavior.
-2. `calcSpeed`
+1. `calcSpeed`
    Recommended target unit is `mm/s`.
-3. `calcDistance`
+2. `calcDistance`
    Recommended target unit is `mm`, but only after `calcSpeed` is stable.
 
-This order keeps the dependencies clear: heading now has a stable unit, but its quality still depends on the Z-bias choice, and distance still depends on speed scaling.
+This order keeps the dependencies clear: heading now has a stable unit with a startup bias calibration, and distance still depends on speed scaling.
 
 ## Initial Illustration Prompt
 

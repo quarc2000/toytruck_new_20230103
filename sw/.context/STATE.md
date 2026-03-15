@@ -13,9 +13,10 @@
 - The next valuable work is no longer "create the document" but "use the document to decide which ambiguous units should be normalized first and then bring code semantics into line in a controlled order."
 - The first actual semantic normalization is now the MPU6050 temperature path: `rawTemp` is stored explicitly as `degC10` using an integer form of the datasheet conversion, and the debug entry points no longer print misleading implied units for the other still-ambiguous variables.
 - The MPU6050 gyro path is now also partly normalized: `rawGyX`, `rawGyY`, and `rawGyZ` are stored consistently as `deg/s * 10`, and `calcHeading` is stored as `deg * 10`.
-- The remaining gyro-related ambiguity is no longer the unit itself but the old hardcoded Z-axis bias correction that still affects `rawGyZ` and therefore `calcHeading`.
+- The old hardcoded MPU6050 gyro Z bias has now been replaced by a startup `zeroGz` calibration average, so the remaining 6050 ambiguity is primarily around noise and drift rather than unit or hardcoded-bias handling.
 - A new `.context/resources/datasheets` index is being added so chip datasheet sources live under project resources rather than only in scattered web searches.
 - The current shell runtime cannot mirror binary PDFs from HTTPS sources reliably, so the first datasheet pass must store exact source URLs and retrieval notes instead of local PDF copies.
+- The first actual chip note now exists for the MPU6050 under `.context/resources/chip_notes/MPU6050.md`, and future chip work should check the note before going back to the PDF.
 - Active task: formalize the shared variable model around `setget`, including naming tiers, units, meaning, and future fusion outputs.
 - Known active conflict: `CON-0001` tracks the current architecture-level task-safety gap around direct `Wire` usage without a project-wide approved synchronization model.
 - The repository uses multiple firmware entry points and reusable modules, so task-safety review must cover both reusable runtime modules and test or bring-up paths.

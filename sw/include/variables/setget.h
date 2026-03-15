@@ -11,7 +11,7 @@
 // The detailed source-of-truth for meaning, units, IDs, and status now lives in docs/VARIABLE_MODEL.md.
 typedef enum {
     zeroAx,         // Forward accelerometer zero offset in raw MPU6050 counts.
-    zeroGz,         // Reserved gyro zero offset. Not actively driven today.
+    zeroGz,         // Gyro Z zero offset in raw MPU6050 counts from startup averaging.
     rawDistLeft,    // Left ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistFront,   // Front ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistRight,   // Right ultrasonic distance in cm. 199 is also timeout/out-of-range.

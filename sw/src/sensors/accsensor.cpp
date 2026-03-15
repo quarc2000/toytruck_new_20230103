@@ -13,7 +13,6 @@
 static constexpr int32_t MPU6050_TEMP_OFFSET_DEGC10 = 365;
 static constexpr int32_t MPU6050_GYRO_LSB_PER_DPS = 131;
 static constexpr int32_t MPU6050_GYRO_SCALE_FACTOR = 10;
-static constexpr int32_t MPU6050_GYRO_Z_BIAS_DPS10 = 20;
 
 static int32_t mpu6050TempRawToDegC10(int16_t raw_temp)
 {
@@ -84,7 +83,8 @@ static void accel_task(void *pvParameters)
         //-----------------------
         // Z dimension of the gyro gives us how quickly the direction of the truck changes
         int16_t GyZ_raw = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
-        const long GyZ_degps10 = mpu6050GyroRawToDegPs10(GyZ_raw, MPU6050_GYRO_Z_BIAS_DPS10);
+        const long zGz = globalVar_get(zeroGz);
+        const long GyZ_degps10 = mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz));
         // calculate heading
         long heading_age;
         long old_heading;
@@ -103,6 +103,7 @@ void ACCsensor::Begin()
     globalVar_set(calcSpeed,0);
     globalVar_set(calcDistance,0);
     globalVar_set(calcHeading,0);
+    globalVar_set(zeroGz, 0);
     task_safe_wire_begin(MPU6050_ADDR);
     task_safe_wire_write(PWR_MGMT_1);
     task_safe_wire_write(0);
@@ -130,20 +131,36 @@ void ACCsensor::Begin()
     vTaskDelay(pdMS_TO_TICKS(200));
     //We need to store the zero values avergaes
     long n = 0;
+    long n_gz = 0;
     for(int i = 1;i< 50;i++){
     task_safe_wire_begin(MPU6050_ADDR);
     task_safe_wire_write(0x3B); // starting with register 0x3B (ACCEL_XOUT_H)
     task_safe_wire_restart();
     task_safe_wire_request_from(MPU6050_ADDR, 14); // request a total of 14 registers
     int16_t tmp_AcX = task_safe_wire_read() << 8 | task_safe_wire_read();
+    task_safe_wire_read(); // AcY high
+    task_safe_wire_read(); // AcY low
+    task_safe_wire_read(); // AcZ high
+    task_safe_wire_read(); // AcZ low
+    task_safe_wire_read(); // Temp high
+    task_safe_wire_read(); // Temp low
+    task_safe_wire_read(); // GyX high
+    task_safe_wire_read(); // GyX low
+    task_safe_wire_read(); // GyY high
+    task_safe_wire_read(); // GyY low
+    int16_t tmp_GyZ = task_safe_wire_read() << 8 | task_safe_wire_read();
     task_safe_wire_end();
     n+=tmp_AcX;
+    n_gz+=tmp_GyZ;
     vTaskDelay(pdMS_TO_TICKS(21));
     globalVar_set(zeroAx,n/i);
+    globalVar_set(zeroGz,n_gz/i);
     };
     
     Serial.print("Calculated offset: ");
     Serial.println(globalVar_get(zeroAx));
+    Serial.print("Calculated gyro Z offset: ");
+    Serial.println(globalVar_get(zeroGz));
     //globalVar_set(zeroAx,512);
  
     

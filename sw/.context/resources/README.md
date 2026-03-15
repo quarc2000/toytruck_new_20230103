@@ -20,3 +20,4 @@ This directory is the configured MCP resource root for local development.
 - `CONTROLLER_BOARD.md` for the bespoke truck controller board documentation.
 - `AGENTS_AND_PLATFORMIO.md` for the repo-local PlatformIO setup, sandbox build workaround, and the expected build workflow for future agents.
 - `datasheets/README.md` for the current chip datasheet index and direct source URLs for the chips identified from code and board notes.
+- `chip_notes/README.md` for distilled per-chip Markdown notes that capture reusable findings from datasheets, experiments, and verified code review.
