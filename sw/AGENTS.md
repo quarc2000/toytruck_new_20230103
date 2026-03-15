@@ -45,6 +45,8 @@ This project is using small modular toy trucks with added control board (ESP32) 
 ## Context Management
 - Always log major changes/understandings in `.context/PROJECT_HISTORY.md`.
 - Keep `.context/STATE.md` current as working memory for the current task only.
+- Keep `.context/PLAN.md` current enough that another agent can resume from it without re-discovery.
+- Keep `.context/TASK.md` aligned with the real active task and immediate next actions.
 - Update `.context/ARCHITECTURE.md` whenever architecture/buffer-model/state-machine decisions change.
 - If anything in resources appears incorrect, ask the user before changing it.
 
@@ -58,7 +60,19 @@ This project is using small modular toy trucks with added control board (ESP32) 
 | `platformio.ini` | Build/upload/monitor configuration. |
 
 ## Maintenance Instructions
+- `STATE.md`, `PLAN.md`, and `TASK.md` are mandatory working memory, not optional cleanup. The agent MUST update them during the work, not later, so they remain accurate after every meaningful step.
+- The agent MUST NOT leave code, docs, or configuration changes in place while `STATE.md`, `PLAN.md`, or `TASK.md` still describe an older state.
+- For every non-trivial task, the agent MUST first turn the task into a step-by-step execution plan in `.context/PLAN.md` before doing substantial implementation work.
+- The agent MUST then work from that plan rather than improvising from memory alone.
+- When a plan step is completed, the agent MUST mark it as completed in `.context/PLAN.md`. When the active subtask changes, `.context/PLAN.md` MUST show that change clearly.
 - Update `.context/STATE.md` as current-task memory only. Do not use it for history, and do not put next steps there if they belong in `.context/PLAN.md` or `.context/TASK.md`.
+- `.context/STATE.md` MUST stay short and focused. It should contain only live facts needed to continue the current task after context loss or restart. If old items are no longer needed for immediate continuation, the agent MUST remove or compress them instead of letting the file grow indefinitely.
+- Historical detail, completed-step narrative, old blockers, and superseded discoveries belong in `.context/PROJECT_HISTORY.md`, not in `.context/STATE.md`.
+- Update `.context/PLAN.md` whenever the current plan changes, a plan item completes, or the next execution order becomes clearer.
+- `.context/PLAN.md` should be an execution plan for the current task, not just a broad roadmap.
+- `.context/PLAN.md` should normally use three primary sections: `Steps Completed`, `In Progress`, and `Steps Remaining`.
+- `.context/STATE.md` should map directly to the `In Progress` section of `.context/PLAN.md` and act as the compact live memory for that active subtask.
+- If `PLAN.md` and `STATE.md` drift apart, the agent MUST bring them back into alignment immediately.
 - Append to `.context/PROJECT_HISTORY.md` after significant work.
 - Keep `.context/TASK.md` current with active task and next steps.
 - Keep resource files updated via `.context/resources/README.md` index.

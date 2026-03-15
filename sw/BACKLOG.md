@@ -17,3 +17,4 @@
 - Implement the first observed-map update pipeline from live sensors after the mapping foundation is reviewed.
 - Define and implement pose tracking and alignment updates between observed and programmed maps.
 - Add VL53L5 point-cloud projection rules into the 2D occupancy map once that hardware path is active.
+- Explore an indoor ceiling-map layer for navigation using a long-range TOF sensor, analogous to an echosounder map in a boat. This could provide an additional overhead reference map for indoor driving and later fusion with the floor-plane or wall map.

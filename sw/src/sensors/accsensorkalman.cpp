@@ -14,6 +14,8 @@
 static constexpr int32_t MPU6050_TEMP_OFFSET_DEGC10 = 365;
 static constexpr int32_t MPU6050_GYRO_LSB_PER_DPS = 131;
 static constexpr int32_t MPU6050_GYRO_SCALE_FACTOR = 10;
+static constexpr int32_t MPU6050_EMA_ALPHA_NUMERATOR = 1;
+static constexpr int32_t MPU6050_EMA_ALPHA_DENOMINATOR = 4;
 
 static int32_t mpu6050TempRawToDegC10(int16_t raw_temp)
 {
@@ -37,6 +39,14 @@ static int32_t mpu6050GyroRawToDegPs10(int16_t raw_gyro, int32_t bias_dps10 = 0)
     // Store gyro rates as deg/s * 10 so heading can integrate into deg * 10 cleanly.
     const int32_t scaled_dps10 = divideRoundNearest(static_cast<int32_t>(raw_gyro) * MPU6050_GYRO_SCALE_FACTOR, MPU6050_GYRO_LSB_PER_DPS);
     return scaled_dps10 + bias_dps10;
+}
+
+static int32_t applyEma(int32_t previous_value, int32_t new_value)
+{
+    // Keep gyro and temperature semantics aligned with the plain MPU6050 env so
+    // the environment switch changes filter strategy, not the published contract.
+    const int32_t keep_weight = MPU6050_EMA_ALPHA_DENOMINATOR - MPU6050_EMA_ALPHA_NUMERATOR;
+    return (previous_value * keep_weight + new_value * MPU6050_EMA_ALPHA_NUMERATOR) / MPU6050_EMA_ALPHA_DENOMINATOR;
 }
 
 //float processNoise, float measurementNoise, float estimationError, float initialValue)
@@ -86,22 +96,22 @@ static void accel_task(void *pvParameters)
         float filteredAcZ = kalmanFilterZ.updateEstimate(AcZ);
         globalVar_set(rawAccZ, (int)filteredAcZ);
         int16_t Tmp = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
-        globalVar_set(rawTemp, mpu6050TempRawToDegC10(Tmp));
+        globalVar_set(rawTemp, applyEma(globalVar_get(rawTemp), mpu6050TempRawToDegC10(Tmp)));
         int16_t GyX = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
-        globalVar_set(rawGyX, mpu6050GyroRawToDegPs10(GyX));
+        globalVar_set(rawGyX, applyEma(globalVar_get(rawGyX), mpu6050GyroRawToDegPs10(GyX)));
         int16_t GyY = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
-        globalVar_set(rawGyY, mpu6050GyroRawToDegPs10(GyY));
+        globalVar_set(rawGyY, applyEma(globalVar_get(rawGyY), mpu6050GyroRawToDegPs10(GyY)));
         //-----------------------
         // Z dimension of the gyro gives us how quickly the direction of the truck changes
         int16_t GyZ_raw = task_safe_wire_read() << 8 | task_safe_wire_read(); // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
         const long zGz = globalVar_get(zeroGz);
-        const long GyZ_degps10 = mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz));
+        const long GyZ_degps10 = applyEma(globalVar_get(rawGyZ), mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz)));
         // calculate heading
         long heading_age;
         long old_heading;
         old_heading = globalVar_get(calcHeading, &heading_age);
         globalVar_set(calcHeading, old_heading + (GyZ_degps10 * heading_age) / 1000); // Integrate deg/s*10 over elapsed ms into heading in deg*10.
-        globalVar_set(rawGyZ, GyZ_degps10);                            // Store the latest yaw rate in deg/s*10.
+        globalVar_set(rawGyZ, GyZ_degps10);                            // Store the filtered yaw rate in deg/s*10.
         task_safe_wire_end();
         //------------
         vTaskDelay(pdMS_TO_TICKS(20));
