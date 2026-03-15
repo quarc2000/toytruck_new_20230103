@@ -7,10 +7,12 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - `platformio.ini` defines many separate environments instead of one canonical production target.
 - The controller hardware is custom, but the PlatformIO board abstraction is `esp32dev`.
 - `src/actuators` and `include/actuators` contain motor, steering, and lighting control.
+- `src/basic_telemetry` and `include/basic_telemetry` contain the new minimal Wi-Fi debug path with an in-memory logger and simple web server.
 - `src/sensors` and `include/sensors` contain ultrasonic, accelerometer, compass, and related filter logic.
 - `src/telemetry` and `include/telemetry` contain logging and MQTT support.
 - `src/robots` and `include/robots` contain higher-level driver behavior.
 - `src/config.cpp`, `src/secrets.cpp`, `src/expander.cpp`, and `src/dynamics.cpp` provide shared supporting logic.
+- `src/lights` and `include/lights` now contain expander-backed light-control services.
 - `src/variables/setget.cpp` and `include/variables/setget.h` implement the shared information interface used for cross-task data exchange.
 - A first mapping subsystem now exists under `include/navigation` and `src/navigation`, and it is the active architecture area for navigation work.
 
@@ -28,6 +30,22 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - `setget` currently stores integer-valued state (`long` in the current implementation) and protects each variable with its own mutex/semaphore.
 - Architectural requirement: all code must be task safe. If any module is found to bypass task-safe access patterns, work must pause and the user must be asked for guidance before proceeding.
 - I2C access is a known architectural concern area and should be treated as requiring explicit task-safe wrapping or serialization.
+- The current MCP23017 light path is serialized through `task_safe_wire` via `src/expander.cpp`, so lighting is now part of the same task-safe I2C discipline as the other shared-bus devices.
+- The new basic Wi-Fi debug path is intentionally separate from the existing MQTT-oriented telemetry files. It is a local-first diagnostic path, not a replacement for later Pi/MQTT integration.
+
+## Basic Telemetry Architecture
+- `basic_telemetry` is the new minimal untethered debug path for moving-truck diagnostics.
+- `basic_logger` stores recent runtime log lines in a RAM ring buffer rather than writing files to flash.
+- `basic_web_server` exposes:
+  - a simple HTML page
+  - a plain-text `/logs` view
+  - a JSON `/status` view
+- The first test path uses a safe stationary env and shows selected `setget` values such as front distance, accelerometer axes, yaw rate, heading, forward-clear fuse, steering command, and desired speed.
+- The current Wi-Fi behavior is:
+  - always start a dedicated debug AP for direct connection
+  - also attempt station connection with the existing credentials from `src/secrets.cpp`
+  - continue in AP-only mode if station connection fails
+- This path is intentionally minimal and should stay separate from the later MQTT-to-Pi telemetry work.
 
 ## Shared Variable Model
 - `setget` is the current shared-variable bus between tasks and remains the approved path for task-safe cross-task integer state exchange.
@@ -63,6 +81,21 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
     - clear if at least one known forward sensor reports enough clearance and none report blocked
     - unknown if no current forward sensor is trustworthy
 - This first step is deliberately limited to fast forward-clearance gating. The slow fusion task is present as a stub so future pose and map fusion can be added without changing package ownership again.
+
+## Lighting Architecture
+- Vehicle lighting is now moving from scripted GPIO bring-up into a real service layer.
+- The current light output ownership is:
+  - pin `0`: main light
+  - pin `1`: brake light
+  - pin `8`: left indicator candidate
+  - pin `9`: right indicator candidate
+  - pin `11`: reverse light
+- `LightService` is the current owner of these outputs through one expander instance and one FreeRTOS task.
+- The current control inputs are:
+  - `rawAccX` for first-pass brake detection from longitudinal deceleration
+  - `steerDirection` for indicator flashing demand
+  - `driver_desired_speed` for reverse-light demand
+- Main-light policy is intentionally left undecided for now and is kept off in the first automated light-service pass so brake, indicator, and reverse behavior remain easy to verify.
 
 ## Integration Status
 - Some capabilities such as OTA and related infrastructure may exist in branches or prior work by other contributors, but they are not yet considered integrated into the working architecture for this local development flow.

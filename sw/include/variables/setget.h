@@ -44,7 +44,7 @@ typedef enum {
     driver_driverActivity,      // Reserved driver-mode/activity code for the future Driver layer.
     driver_desired_direction,   // Reserved desired absolute direction for the future Driver layer.
     driver_desired_turn,        // Reserved desired relative turn for the future Driver layer.
-    driver_desired_speed,       // Reserved desired speed for the future Driver layer.
+    driver_desired_speed,       // Current desired longitudinal speed command, normalized today and later promotable to Driver-layer ownership.
     driver_desired_distance,    // Reserved desired distance for the future Driver layer.
     //<<< Robot - DRIVER
     NUM_VARS

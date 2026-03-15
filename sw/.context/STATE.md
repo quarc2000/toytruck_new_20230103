@@ -1,40 +1,18 @@
 # State
 
 ## Current Task Memory
-- Active task: restore the last acceptable plain `accsensor` build, defer MPU6050-only speed and distance, and then move on to the expander path.
-- Current plain-path status:
-  - `calcHeading` behaves plausibly enough on hardware after the recent gyro and damping fixes
-  - `rawAccX`, `rawAccY`, and `rawAccZ` are centered, damped, deadbanded, and slowly re-zeroed while stationary
-  - `calcSpeed` and `calcDistance` now use a cautious forward-axis estimator with thresholding, leakage, stationary reset, and clamping
-  - `env:accsensor` compiles successfully after the estimator change
-- New live issue:
-  - the first plain-path estimator was too conservative in practice and initially published no visible speed or distance updates on hardware
-- Latest fix:
-  - the estimator now integrates filtered pre-deadband `AX` instead of the deadbanded display value
-  - the motion threshold was lowered so real movement can reach `calcSpeed` and `calcDistance`
-  - speed no longer snaps to `0` immediately because the stationary response now requires sustained stillness
-  - `env:accsensor` rebuilt and reflashed successfully
-- New live issue:
-  - after stopping, speed now decays too weakly and does not return to `0`, so distance keeps creeping
-- Latest hardware result:
-  - the current plain-path speed estimate still reacts too strongly, remains active too long after a short move, and can leave distance with the wrong sign after stopping
-- Latest hardware result after the stricter stop logic:
-  - direction and relative magnitude now look better, but the estimator is biased low and only reports roughly half of a real `200 mm` move
-- Latest fix:
-  - active-motion gain was increased modestly
-  - active-motion leakage was weakened so less distance is lost during real movement
-  - `env:accsensor` rebuilt and reflashed successfully
-- Latest hardware result after the active-motion tuning:
-  - very fast motion can now land near the real `200 mm`, but normal motion is still clipped too hard
-  - back-and-forth motion still leaves too much signed residual distance
-- Latest decision:
-  - the most recent low-motion and reversal experiment was worse than the prior version
-  - that experiment has been reverted in code
+- Active task: build a minimal `basic_telemetry` Wi-Fi debug path with RAM-backed logs and a simple web page.
+- Relevant current state:
+  - the last acceptable `accsensor` build is back on the truck
+  - MPU6050-only speed and distance are now deferred to the backlog
+  - existing `src/telemetry/*` files are from another team and should not be reused for this first web-debug path
+  - the new work should live under `include/basic_telemetry` and `src/basic_telemetry`
+  - `src/secrets.cpp` already contains a Wi-Fi SSID and password that can be reused for a first station-mode attempt if needed
+  - the first verification env should be safe and stationary, not one that drives the truck
+  - `env:basictelemetry` now compiles successfully and serves a simple HTML page plus `/logs` and `/status`
+  - the web server always starts a direct debug AP and also attempts STA connection with the existing secrets
+  - `env:basictelemetry` is now flashed successfully to the truck
+  - a newer AP-only telemetry variant with fixed SSID `ToyTruckDebug` now compiles successfully but is not flashed yet because `COM7` was busy during upload
+  - the expander board note under `.context/resources/boards/IO_EXPANDER.md` now reflects the recent verified lighting findings
 - Current next step:
-  - rebuild and reflash the reverted `accsensor` version
-- Current Kalman-path status:
-  - kept buildable
-  - intentionally parked as an experimental comparison path because its accel output looked noisier on hardware
-- After the revert:
-  - MPU6050-only speed and distance should be treated as deferred experimental work
-  - the next active feature path should move to the expander bring-up
+  - close whatever holds `COM7`, flash the fixed-SSID `ToyTruckDebug` build, then verify the web page plus log and status endpoints

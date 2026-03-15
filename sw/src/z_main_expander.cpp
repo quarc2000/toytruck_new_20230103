@@ -48,24 +48,40 @@ void setup() {
 }
 
 void loop() {
-  // Continuously toggle GPIO pin 1 for testing
-  Serial.println("ON");
-  i2cDevice.writeGPIO(7, true);  //LED
-  vTaskDelay(pdMS_TO_TICKS(270));
-  i2cDevice.writeGPIO(8,true);
-  //vTaskDelay(pdMS_TO_TICKS(270));
-  //i2cDevice.writeGPIO(9, true);
-  //vTaskDelay(pdMS_TO_TICKS(270));
-  i2cDevice.writeGPIO(0,true);   //full beam
-  vTaskDelay(pdMS_TO_TICKS(200));
-  Serial.println("OFF");
-  i2cDevice.writeGPIO(7, false);
-  //vTaskDelay(pdMS_TO_TICKS(270));
-  //i2cDevice.writeGPIO(8,false);
-  //vTaskDelay(pdMS_TO_TICKS(270));
-  //i2cDevice.writeGPIO(9, false);
-  //vTaskDelay(pdMS_TO_TICKS(270));
-  i2cDevice.writeGPIO(0,false);
+  // Drive each known or likely light output in a dedicated phase so wiring
+  // and polarity can be confirmed visually on the truck.
+  Serial.println("All tested lights OFF");
+  i2cDevice.writeGPIO(0, false);
+  i2cDevice.writeGPIO(1, false);
+  i2cDevice.writeGPIO(8, false);
+  i2cDevice.writeGPIO(9, false);
+  vTaskDelay(pdMS_TO_TICKS(400));
+
+  Serial.println("Main light pin 0 ON");
+  i2cDevice.writeGPIO(0, true);
+  i2cDevice.writeGPIO(1, false);
+  i2cDevice.writeGPIO(8, false);
+  i2cDevice.writeGPIO(9, false);
+  vTaskDelay(pdMS_TO_TICKS(900));
+
+  Serial.println("Brake light pin 1 ON");
+  i2cDevice.writeGPIO(0, false);
+  i2cDevice.writeGPIO(1, true);
+  i2cDevice.writeGPIO(8, false);
+  i2cDevice.writeGPIO(9, false);
+  vTaskDelay(pdMS_TO_TICKS(900));
+
+  Serial.println("Indicator candidate pin 8 ON");
+  i2cDevice.writeGPIO(0, false);
+  i2cDevice.writeGPIO(1, false);
+  i2cDevice.writeGPIO(8, true);
+  i2cDevice.writeGPIO(9, false);
   vTaskDelay(pdMS_TO_TICKS(700));
-  
+
+  Serial.println("Indicator candidate pin 9 ON");
+  i2cDevice.writeGPIO(0, false);
+  i2cDevice.writeGPIO(1, false);
+  i2cDevice.writeGPIO(8, false);
+  i2cDevice.writeGPIO(9, true);
+  vTaskDelay(pdMS_TO_TICKS(700));
 }

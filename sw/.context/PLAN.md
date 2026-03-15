@@ -30,16 +30,41 @@
 - Rebuilt and reflashed `accsensor` successfully after the active-motion tuning.
 - Reverted the last low-motion and reversal experiment after live testing showed it was worse than the previous version.
 - Added the MPU6050-only speed and distance limitation to the backlog as deferred experimental work.
+- Rebuilt and reflashed the reverted `accsensor` version successfully.
+- Built `env:expander` successfully.
+- Flashed `env:expander` successfully to `COM7`.
+- Updated `src/z_main_expander.cpp` so pins `8` and `9` blink explicitly for indicator discovery.
+- Fixed `src/expander.cpp` so pins `8` and `9` are configured as outputs and GPIO writes preserve the rest of the MCP23017 port.
+- Rebuilt and reflashed `env:expander` successfully after the expander implementation fix.
+- Extended the simple expander test so brake light pin `1` is asserted during the idle/deceleration part of the blink cycle.
+- Rebuilt and reflashed `env:expander` successfully after adding brake light pin `1` to the test pattern.
+- Reworked the simple expander test into dedicated phases for pin `0`, pin `1`, pin `8`, and pin `9` so the harness can be verified directly.
+- Rebuilt `env:expander` successfully with the explicit four-phase light test.
+- Confirmed that the test harness is good enough to move from manual GPIO phasing to a real light-control task.
+- Added `include/lights/light_service.h` and `src/lights/light_service.cpp` as the first real expander-backed light-control task.
+- Updated `src/expander.cpp` so reverse light pin `11` is also configured as an output.
+- Wired the light service into `src/z_main_hw-test.cpp` and `env:hwtest`.
+- Verified `env:hwtest` compiles successfully with the new light service.
+- Flashed `env:hwtest` successfully to the truck with the integrated light service.
+- Added `basic_logger` and `basic_web_server` under `include/basic_telemetry` and `src/basic_telemetry`.
+- Added the safe stationary `src/z_main_basic_telemetry.cpp` test entry point.
+- Added `env:basictelemetry` and verified it compiles successfully.
+- Configured the basic web server to always start a direct debug AP and also attempt station-mode connection.
+- Flashed `env:basictelemetry` successfully to the truck.
+- Updated `.context/resources/boards/IO_EXPANDER.md` with the recent verified lighting and expander findings.
+- Simplified the telemetry Wi‑Fi behavior again to AP-only with fixed SSID `ToyTruckDebug`, and verified that variant compiles successfully.
 
 ## In Progress
-- Rebuild and reflash the reverted `accsensor` version.
+- Flash the fixed-SSID AP-only `basictelemetry` build to the truck.
 
 ## Steps Remaining
-- Confirm the truck is back on the reverted `accsensor` build.
-- Switch the active task to the expander path and define the first narrow verification step there.
+- Verify the Wi‑Fi connection path and web outputs on a client device.
+- Record the connection details and any follow-up improvements needed for the web UI or logger.
 
 ## Definition Of Done
 - `calcHeading` has a clear local integration basis and behaves plausibly in live testing.
-- The last acceptable `accsensor` version is restored on the truck.
-- The inertial-only speed and distance limitation is explicitly deferred.
-- The active work is ready to move on to the expander path.
+- The simple expander test builds and flashes successfully.
+- The first expander hardware behavior has been observed.
+- The next expander-specific follow-up is clear from that observation.
+- A real light-control task is running on hardware through the expander path.
+- A basic Wi-Fi debug page exists for untethered truck diagnostics.

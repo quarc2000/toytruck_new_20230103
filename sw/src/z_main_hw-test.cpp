@@ -5,6 +5,7 @@
 #include <actuators/steer.h>
 #include <sensors/usensor.h>
 #include <fusion/fusion_service.h>
+#include <lights/light_service.h>
 #include <atmio.h>
 
 // Create vectors for the ultrasound sensor pins
@@ -16,6 +17,7 @@ long int age;
 Usensor ultraSound;
 ACCsensor asens;
 FusionService fusionService;
+LightService lightService;
 
 Motor drive;
 Steer steer;
@@ -44,6 +46,8 @@ void setup()
 	Serial.println(ultraSound.open(TRIGGER_PIN4, ECHO_PIN4, rawDistBack));  
     vTaskDelay(pdMS_TO_TICKS(100));
     fusionService.Begin();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    lightService.Begin();
     vTaskDelay(pdMS_TO_TICKS(100));
 }
 
@@ -81,15 +85,23 @@ void loop()
     Serial.print("Forward clearance fuse: ");
     Serial.println(globalVar_get(fuseForwardClear));
     vTaskDelay(pdMS_TO_TICKS(1000));
+    globalVar_set(driver_desired_speed, 100);
     drive.driving(100);
     vTaskDelay(pdMS_TO_TICKS(1000));
+    globalVar_set(driver_desired_speed, 0);
+    drive.driving(0);
+    vTaskDelay(pdMS_TO_TICKS(400));
+    globalVar_set(driver_desired_speed, -100);
     drive.driving(-100);
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(600));
+    globalVar_set(driver_desired_speed, 0);
+    drive.driving(0);
+    vTaskDelay(pdMS_TO_TICKS(300));
     steer.Right();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(800));
     steer.Left();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(800));
     steer.Stop();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(300));
 
 }
