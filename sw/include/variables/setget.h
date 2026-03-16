@@ -8,7 +8,9 @@
 
 
 // Shared-variable names for the task-safe setget bus.
-// The detailed source-of-truth for meaning, units, IDs, and status now lives in docs/VARIABLE_MODEL.md.
+// The detailed source-of-truth for meaning, units, semantic tiers, documentation IDs, and status
+// now lives in docs/VARIABLE_MODEL.md. Current code symbols keep the historical raw/calc/fuse
+// naming even though the documentation taxonomy now distinguishes raw, cleaned, calculated, and fused.
 typedef enum {
     zeroAx,         // Forward accelerometer zero offset in raw MPU6050 counts.
     zeroAy,         // Lateral accelerometer zero offset in raw MPU6050 counts.

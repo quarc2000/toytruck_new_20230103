@@ -4,7 +4,7 @@
 This project is using small modular toy trucks with added control board (ESP32) and with sensors. The scale of the truck is about 20:1. In the basic shape the truck has engines for both boith left and right rear wheels separately. And a servo for controlling the steering. There are aother configurations. It also had utrasound sensors in all 4 directions as well as a 6050 accelerometer and gyro. The truck also has an expansion board via i2c that has additional IO, used for the lights, and also an I2C switch which allows for plugging in more I2c devices like LV0x and Lv5x TOF laser sensors. The idea is to navigate autonomously in a laburinth.
 
 ## Instruction Precedence
-- The MCP-served `AGENTS.md` and MCP context-engineering files are the starting point and must be followed first.
+- The MCP-served (in shared-resources) `AGENTS.md`  and MCP context-engineering files are the starting point and must be followed first.
 - All files present in the CCP shared-resources are to be seen as the base for any local copy of the same file
 - Local project copies of any context file might only restrict further, if contradicting central MCP based rules that MUST be documented as a deviation.  
 - After that, follow this project's local `.context/GUARDRAILS.md` and other local context files.
@@ -31,6 +31,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 | [.context/PLAN.md](.context/PLAN.md) | Planning the current TASK in stages. MUST be updated at every step so agent always knows where to continue.|
 | [.context/TASK.md](.context/TASK.md) | Current active task. |
 | [.context/TOOLS.md](.context/TOOLS.md) | Provides information on which tools are available and which are not, to avoid guessing |
+| [.context/ILLUSTRATION_FORMAT.md](.context/ILLUSTRATION_FORMAT.md) | Default style guide for future illustration prompts and architecture visuals. |
 | [.context/resources/README.md](.context/resources/README.md) | Index for hardware/resource reference files. |
 | [CONFLICTS.md](CONFLICTS.md) | A file containing all identified conflicts between instructions, rules and policies. |
 | [BACKLOG.md](BACKLOG.md) | Where we put anything we figure out we need to do, but it is not part of the current TASK. |
@@ -45,8 +46,8 @@ This project is using small modular toy trucks with added control board (ESP32) 
 ## Context Management
 - Always log major changes/understandings in `.context/PROJECT_HISTORY.md`.
 - Keep `.context/STATE.md` current as working memory for the current task only.
-- Keep `.context/PLAN.md` current enough that another agent can resume from it without re-discovery.
-- Keep `.context/TASK.md` aligned with the real active task definition only.
+- Keep `.context/PLAN.md` plan for achiving the task and info so that another agent can resume from it without re-discovery. Has a completed, work in progress, and remaining section. COntinously updated by the agent.
+- Keep `.context/TASK.md` aligned with the real active task definition only. Do not update until TASK has be finialised or cancelled. 
 - Update `.context/ARCHITECTURE.md` whenever architecture/buffer-model/state-machine decisions change.
 - If anything in resources appears incorrect, ask the user before changing it.
 
@@ -84,6 +85,8 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - If there is no active task, `.context/TASK.md` should say that plainly and remain minimal.
 - Execution progress, subtask status, and next implementation steps belong in `.context/PLAN.md`.
 - Keep resource files updated via `.context/resources/README.md` index.
+- When the user requests an illustration prompt, diagram prompt, architecture poster prompt, or similar visual-generation prompt, the agent MUST first consult `.context/ILLUSTRATION_FORMAT.md` and use it as the default style baseline unless the user explicitly asks for a different style.
+- Illustration prompts should keep on-image text to the minimum necessary for understanding, because current image models are poor at rendering dense text cleanly.
 - Use the root `CONFLICTS.md` as the formal conflict register and keep it in table format.
 - Use the root `DECISIONS.md` to log significant project decisions, especially around conflicts, deviations, and architectural direction. Do not use it for context-maintenance housekeeping or backlog-only deferrals.
 - Whenever any file is added to or deleted from the repository, the agent MUST document the change in `.context/PROJECT_HISTORY.md`, including why the file was added or removed.

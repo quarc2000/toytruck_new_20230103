@@ -35,7 +35,8 @@ For first bring-up, the important facts are:
   - `0x52` for the left-shifted write-byte convention
 - The address can be changed when multiple sensors are on the same bus
 - ST public driver material exposes a device ID register at `0x010F`
-- The expected device ID value is `0xF0 0x02` when read as two bytes, commonly treated as `0xF002`
+- ST public BSP header names `0xF002` as the chip ID constant
+- On this project's current custom helper and hardware path, reading `0x010F` returns `0x0F01`
 
 ## Address
 
@@ -53,7 +54,11 @@ For first bring-up, the important facts are:
 - A useful first custom bring-up check after plain I2C `ACK` is reading the device ID register
 - ST public driver material uses:
   - register: `0x010F`
-  - expected value: `0xF002`
+  - chip ID constant: `0xF002`
+- Current project observation on the real truck hardware:
+  - mux channel `2`
+  - address `0x29`
+  - repeated readback: `0x0F01`
 - This is a much stronger first checkpoint than plain `ACK`, because it confirms the bus device is behaving like a `VL53L5CX` rather than just responding at `0x29`
 
 ## Setup-Critical Pins And Signals
@@ -179,6 +184,10 @@ This is a better first step than dumping all `64` zones immediately.
   - pure polling
   - one GPIO interrupt line
   - or no `INT` usage in the very first pass
+- Which exact local source drop should be used for the next step:
+  - ST ULD files
+  - a locally mirrored Arduino wrapper
+  - or another local source bundle
 
 ## Verified vs Inferred
 

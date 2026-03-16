@@ -31,22 +31,21 @@ This makes the shared-state bus compact and task-safe, but it also means every v
 
 ## Variable Taxonomy
 
-The project now uses these tiers:
+| Series | Semantic Layer | Preferred Naming | Meaning |
+|---|---|---|---|
+| `1000` | raw | `raw*` | Direct sensor output or near-direct sensor output. |
+| `2000` | cleaned | `cleaned*` | Filtered, damped, centered, or otherwise cleaned values that are still close to one source. |
+| `3000` | calculated | `calculated*` | Derived from one source or a simple transformation or integration chain. |
+| `4000` | fused | `fused*` | Derived from multiple inputs and intended to be decision-ready. |
+| `7000` | map | `map*` | Shared map and pose exchange values. |
+| `8000` | driver | `driver*` | Higher-level vehicle-command intent or actuator-facing driver state. |
+| `9000` | config or system | `config*` or explicit calibration names | Configuration, calibration, and system support values. |
 
-- `0000` series: calibration and system-state values
-- `1000` series: raw sensor values
-- `2000` series: calculated or integrated values
-- `3000` series: fused decision-ready values
-- `4000` series: map and navigation exchange values
-- `5000` series: actuator and driver intent or state values
+Current implementation note:
 
-Name prefixes should follow the same structure:
-
-- `raw*`: direct sensor output or near-direct sensor output
-- `calc*`: derived from one source or a simple transformation or integration chain
-- `fuse*`: derived from multiple inputs and intended to be decision-ready
-- `map*`: shared map and pose exchange values
-- `driver*`: higher-level vehicle-command intent
+- existing code symbols such as `calcHeading` and `fuseForwardClear` remain valid for now
+- this document uses `calculated*` and `fused*` as semantic tier names
+- a future rename task may align the code prefixes, but that is not part of this taxonomy update
 
 ## Status Terms
 
@@ -61,10 +60,28 @@ Name prefixes should follow the same structure:
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 0001 | `zeroAx` | calibration | Forward-axis accelerometer zero offset used to bias-correct MPU6050 `AcX` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | The value is an average of startup samples, not a factory-calibrated bias. |
-| 0002 | `zeroAy` | calibration | Lateral accelerometer zero offset used to center MPU6050 `AcY` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This is a startup average in the truck's initial pose. It reflects both bias and the initial mounting orientation. |
-| 0003 | `zeroAz` | calibration | Vertical accelerometer zero offset used to center MPU6050 `AcZ` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This startup average includes local gravity in the initial pose, so the centered `rawAccZ` becomes a deviation from startup gravity rather than absolute `1g`. |
-| 0004 | `zeroGz` | calibration | Gyro Z zero offset used to bias-correct MPU6050 yaw-rate readings | MPU6050 raw gyro counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This replaces the older hardcoded yaw-rate bias with a startup average stored in the shared bus. |
+| 9001 | `zeroAx` | config | Forward-axis accelerometer zero offset used to bias-correct MPU6050 `AcX` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | The value is an average of startup samples, not a factory-calibrated bias. |
+| 9002 | `zeroAy` | config | Lateral accelerometer zero offset used to center MPU6050 `AcY` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This is a startup average in the truck's initial pose. It reflects both bias and the initial mounting orientation. |
+| 9003 | `zeroAz` | config | Vertical accelerometer zero offset used to center MPU6050 `AcZ` | MPU6050 raw counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This startup average includes local gravity in the initial pose, so the centered `rawAccZ` becomes a deviation from startup gravity rather than absolute `1g`. |
+| 9004 | `zeroGz` | config | Gyro Z zero offset used to bias-correct MPU6050 yaw-rate readings | MPU6050 raw gyro counts | signed 32-bit integer holding average startup sample | `ACCsensor::Begin()` and `ACCsensorKalman::Begin()` | Active | This replaces the older hardcoded yaw-rate bias with a startup average stored in the shared bus. |
+
+### Cleaned Values
+
+This layer is currently architectural rather than fully implemented as a separate set of bus variables.
+
+Its purpose is to hold cleaned single-source values that are more reusable than direct raw measurements:
+
+- filtered accelerometer channels
+- centered accelerometer channels
+- deadbanded motion channels
+- filtered gyro channels
+- similar cleaned single-source values from other sensors later
+
+Current implementation note:
+
+- the active MPU6050 paths already perform cleaning before publishing several `raw*` values
+- this means some current `raw*` bus values are actually raw-data form after cleaning
+- that is acceptable short-term, but the architecture now reserves the `2000` band for a cleaner future split if these cleaned values need to become first-class bus variables
 
 ### Raw Sensor Values
 
@@ -90,45 +107,45 @@ Name prefixes should follow the same structure:
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 2001 | `calcHeading` | calc | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is now integrated from the startup-bias-corrected `rawGyZ` using a task-local sample interval and a small yaw-rate deadband. It has a stable `deg10` scale, but overall quality still depends on drift and noise. |
-| 2002 | `calcSpeed` | calc | Forward speed estimate from the plain MPU6050 path | millimeters per second | signed integer where sign follows forward or reverse acceleration history | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now publishes a conservative estimate derived from centered `rawAccX` with thresholding, leakage, stationary reset, and clamping. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
-| 2003 | `calcDistance` | calc | Forward distance estimate from the plain MPU6050 path | millimeters | signed integer accumulated from the current `calcSpeed` estimate | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now integrates the conservative speed estimate into distance. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
-| 2004 | `calcXpos` | calc | Reserved X position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
-| 2005 | `calcYpos` | calc | Reserved Y position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
+| 3001 | `calcHeading` | calculated | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is now integrated from the startup-bias-corrected `rawGyZ` using a task-local sample interval and a small yaw-rate deadband. It has a stable `deg10` scale, but overall quality still depends on drift and noise. |
+| 3002 | `calcSpeed` | calculated | Forward speed estimate from the plain MPU6050 path | millimeters per second | signed integer where sign follows forward or reverse acceleration history | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now publishes a conservative estimate derived from centered `rawAccX` with thresholding, leakage, stationary reset, and clamping. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
+| 3003 | `calcDistance` | calculated | Forward distance estimate from the plain MPU6050 path | millimeters | signed integer accumulated from the current `calcSpeed` estimate | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now integrates the conservative speed estimate into distance. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
+| 3004 | `calcXpos` | calculated | Reserved X position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
+| 3005 | `calcYpos` | calculated | Reserved Y position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
 
 ### Fused Values
 
-The first live `fuse*` variable now exists in the enum and runtime.
+The first live `fused*` variable now exists in the enum and runtime.
 
 | ID | Name | Meaning | Intended Unit / Scale | Intended Producer | Status | Notes |
 |---|---|---|---|---|---|---|
-| 3001 | `fuseForwardClear` | Decision-ready forward-movement clearance state | integer state: `-1` unknown, `0` blocked, `1` clear | `src/fusion/clearance_fusion.cpp` | Active | Current minimal rule uses `rawDistFront` and `rawLidarFront` only. A known blocked reading wins; any known clear reading wins if none are blocked; otherwise the result is unknown. |
-| 3002 | `fuseReverseClear` | Decision-ready reverse clearance state | boolean-like integer | future fusion task | Proposed | Same structure as `fuseForwardClear`, but for the rear path. |
-| 3003 | `fuseLeftClear` | Decision-ready left-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
-| 3004 | `fuseRightClear` | Decision-ready right-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
-| 3010 | `fuseHeadingDeg10` | Best current heading estimate after combining gyro, map alignment, and later other sensors | tenths of degrees | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcHeading`. |
-| 3011 | `fuseSpeedMmPs` | Best current speed estimate | millimeters per second | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcSpeed`. |
-| 3012 | `fusePosePacked` | Compact fused pose in grid space | same packed-byte layout as `map*PosePacked` | future fusion task | Proposed | Useful if observed and programmed map pose should be complemented by a best fused pose. |
+| 4001 | `fuseForwardClear` | Decision-ready forward-movement clearance state | integer state: `-1` unknown, `0` blocked, `1` clear | `src/fusion/clearance_fusion.cpp` | Active | Current minimal rule uses `rawDistFront` and `rawLidarFront` only. A known blocked reading wins; any known clear reading wins if none are blocked; otherwise the result is unknown. |
+| 4002 | `fuseReverseClear` | Decision-ready reverse clearance state | boolean-like integer | future fusion task | Proposed | Same structure as `fuseForwardClear`, but for the rear path. |
+| 4003 | `fuseLeftClear` | Decision-ready left-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
+| 4004 | `fuseRightClear` | Decision-ready right-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
+| 4010 | `fuseHeadingDeg10` | Best current heading estimate after combining gyro, map alignment, and later other sensors | tenths of degrees | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcHeading`. |
+| 4011 | `fuseSpeedMmPs` | Best current speed estimate | millimeters per second | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcSpeed`. |
+| 4012 | `fusePosePacked` | Compact fused pose in grid space | same packed-byte layout as `map*PosePacked` | future fusion task | Proposed | Useful if observed and programmed map pose should be complemented by a best fused pose. |
 
 ### Map and Navigation Values
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 4001 | `mapObservedPosePacked` | map | Observed pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | `x` and `y` are grid cells, `direction` is 5-degree clockwise steps from north, `speed` is signed cm/s, `-128` per field means unknown. |
-| 4002 | `mapProgrammedPosePacked` | map | Programmed-map pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | Same packing contract as `mapObservedPosePacked`. |
-| 4010 | `mapObservedCellSizeMm` | map | Cell size used by the observed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
-| 4011 | `mapProgrammedCellSizeMm` | map | Cell size used by the programmed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
+| 7001 | `mapObservedPosePacked` | map | Observed pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | `x` and `y` are grid cells, `direction` is 5-degree clockwise steps from north, `speed` is signed cm/s, `-128` per field means unknown. |
+| 7002 | `mapProgrammedPosePacked` | map | Programmed-map pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | Same packing contract as `mapObservedPosePacked`. |
+| 7010 | `mapObservedCellSizeMm` | map | Cell size used by the observed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
+| 7011 | `mapProgrammedCellSizeMm` | map | Cell size used by the programmed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
 
 ### Actuator and Driver Values
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 5001 | `steerDirection` | actuator | Requested steering direction normalized for the steering subsystem | integer percent-like scale from `-100` to `100` | signed integer | `src/actuators/steer.cpp` | Active | This is the currently commanded steering target, not a measured wheel angle. |
-| 5100 | `driver_driverActivity` | driver | High-level driver mode or command category | intended small enum integer | signed integer | no active producer in current code | Deferred | `driver.cpp` currently uses file-local state instead of the shared variable. |
-| 5101 | `driver_desired_direction` | driver | Requested absolute direction for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
-| 5102 | `driver_desired_turn` | driver | Requested relative turn for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
-| 5103 | `driver_desired_speed` | driver | Requested longitudinal travel speed command | normalized signed command today, likely physical speed later | signed integer | `src/z_main_hw-test.cpp` in the current light-task integration path | Active, Uncertain | Currently used as a signed desired-speed hint for reverse-light behavior. Positive means forward command, negative means reverse command, and the present scale is still the normalized `-100` to `100` actuator command rather than a formal physical unit. |
-| 5104 | `driver_desired_distance` | driver | Requested travel distance | intended millimeters | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
+| 8001 | `steerDirection` | actuator | Requested steering direction normalized for the steering subsystem | integer percent-like scale from `-100` to `100` | signed integer | `src/actuators/steer.cpp` | Active | This is the currently commanded steering target, not a measured wheel angle. |
+| 8100 | `driver_driverActivity` | driver | High-level driver mode or command category | intended small enum integer | signed integer | no active producer in current code | Deferred | `driver.cpp` currently uses file-local state instead of the shared variable. |
+| 8101 | `driver_desired_direction` | driver | Requested absolute direction for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
+| 8102 | `driver_desired_turn` | driver | Requested relative turn for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
+| 8103 | `driver_desired_speed` | driver | Requested longitudinal travel speed command | normalized signed command today, likely physical speed later | signed integer | `src/z_main_hw-test.cpp` in the current light-task integration path | Active, Uncertain | Currently used as a signed desired-speed hint for reverse-light behavior. Positive means forward command, negative means reverse command, and the present scale is still the normalized `-100` to `100` actuator command rather than a formal physical unit. |
+| 8104 | `driver_desired_distance` | driver | Requested travel distance | intended millimeters | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
 
 ## Current Semantic Gaps To Fix Later
 
@@ -152,36 +169,36 @@ This difference is implementation strategy only. Both environments should keep t
 ## Recommended Next Formalization Steps
 
 1. Keep the stored `raw*` naming honest by describing the bus value as raw-data form plus explicit integer scaling.
-2. Decide later whether `rawGy*` should remain scaled raw-data form or be split into a true register-level raw value plus a calculated rate value.
-3. Introduce the first `fuse*` variables only after the raw and calc units are stable.
-4. Update enum comments in `include/variables/setget.h` so they match this document.
-5. Once this document is accepted as the maintained source-of-truth, update `AGENTS.md` so every variable change must update this file in the same work item.
+2. Decide where cleaned single-source values should become explicit `cleaned*` bus variables rather than remaining folded into the current published `raw*` values.
+3. Decide later whether `rawGy*` should remain scaled raw-data form or be split into a true register-level raw value plus a calculated rate value.
+4. Keep the decision-ready layer under `fused*` ownership rather than letting more planner-facing meaning accumulate under `calc*`.
+5. Update enum comments in `include/variables/setget.h` so they match this document.
 
 ## Recommended Fusion Ownership
 
 The first fusion layer should not be spread across unrelated sensor tasks. One dedicated `fusion` package is now the approved model.
 
-### Concrete `calc*` vs `fuse*` Boundary
+### Concrete `calculated*` vs `fused*` Boundary
 
 Use this rule going forward:
 
-- `calc*`
+- `calculated*`
   Fast, local estimates derived from one sensor family or one short processing chain.
-- `fuse*`
+- `fused*`
   Decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints.
 
 Applied to the current motion variables:
 
 | Current Variable | Keep As | Why |
 |---|---|---|
-| `calcHeading` | `calc*` for now | It is still a fast gyro-driven heading estimate from one sensor chain. |
-| `calcSpeed` | `calc*` for now | In the plain env it is now a conservative forward accelerometer-integration estimate from one sensor chain. |
-| `calcDistance` | `calc*` for now | In the plain env it is derived directly from `calcSpeed` and stays part of the same local motion chain. |
-| `fuseHeadingDeg10` | future `fuse*` | This should become the best heading after combining gyro integration, map alignment, and later other sensors. |
-| `fuseSpeedMmPs` | future `fuse*` | This should become the best speed after combining inertial estimates, wheel or motor knowledge, and later map or obstacle cues. |
-| `fusePosePacked` | future `fuse*` | This should become the compact decision-ready pose for navigation. |
+| `calcHeading` | `calculated*` for now | It is still a fast gyro-driven heading estimate from one sensor chain. |
+| `calcSpeed` | `calculated*` for now | In the plain env it is now a conservative forward accelerometer-integration estimate from one sensor chain. |
+| `calcDistance` | `calculated*` for now | In the plain env it is derived directly from `calcSpeed` and stays part of the same local motion chain. |
+| `fuseHeadingDeg10` | future `fused*` | This should become the best heading after combining gyro integration, map alignment, and later other sensors. |
+| `fuseSpeedMmPs` | future `fused*` | This should become the best speed after combining inertial estimates, wheel or motor knowledge, and later map or obstacle cues. |
+| `fusePosePacked` | future `fused*` | This should become the compact decision-ready pose for navigation. |
 
-This keeps the current `calc*` variables useful for fast local estimation while making it clear that later planner-facing or safety-facing motion decisions should prefer `fuse*` ownership rather than continuously overloading `calc*`.
+This keeps the current `calc*` variables useful as members of the `calculated*` layer while making it clear that later planner-facing or safety-facing motion decisions should prefer `fused*` ownership rather than continuously overloading `calc*`.
 
 Recommended structure:
 
@@ -195,7 +212,7 @@ Recommended first task responsibilities:
 | Package Area | Cadence | Inputs | Outputs |
 |---|---|---|---|
 | fast fusion task | `100 ms` today, may later tighten | `rawDist*`, future lidar distances, map occupancy near the truck | `fuseForwardClear`, later other direction-clearance outputs |
-| slow fusion task | `1000 ms` today, likely faster later | `calcHeading`, `calcSpeed`, `calcDistance`, map alignment, future magnetometer or wheel cues | future pose and navigation-facing `fuse*` outputs |
+| slow fusion task | `1000 ms` today, likely faster later | `calcHeading`, `calcSpeed`, `calcDistance`, map alignment, future magnetometer or wheel cues | future pose and navigation-facing `fused*` outputs |
 
 Current implementation status:
 
@@ -234,4 +251,4 @@ This is an implementation-strategy difference only. The shared-variable contract
 
 Use this prompt for a future architecture illustration:
 
-> Create a clean engineering diagram of the toy-truck firmware data model. Show sensor tasks on the left, the shared `setget` bus in the center, and actuator, map, driver, and one unified `fusion` package on the right. Inside the fusion package, show `FusionService` owning two cadences: a fast `10 Hz` task for near-term clearance fusion and a slow `1 Hz` task for pose and map fusion. Group variables into five color-coded bands: calibration (`0000`), raw (`1000`), calculated (`2000`), fused (`3000`), map (`4000`), and driver or actuator (`5000`). Show that every shared value is a signed 32-bit integer. Highlight active flows in solid lines and reserved or deferred flows in dashed lines. Emphasize that `task_safe_wire` is the only direct `Wire` path. Style should feel like a polished embedded-systems architecture poster: precise labels, minimal clutter, balanced whitespace, readable typography, and subtle technical color accents rather than generic flowchart styling.
+> Create a clean engineering diagram of the toy-truck firmware data model. Show sensor tasks on the left, the shared `setget` bus in the center, and actuator, map, driver, and one unified `fusion` package on the right. Inside the fusion package, show `FusionService` owning two cadences: a fast `10 Hz` task for near-term clearance fusion and a slow `1 Hz` task for pose and map fusion. Group variables into color-coded bands: raw (`1000`), cleaned (`2000`), calculated (`3000`), fused (`4000`), map (`7000`), driver or actuator (`8000`), and config or calibration (`9000`). Show that every shared value is a signed 32-bit integer. Highlight active flows in solid lines and reserved or deferred flows in dashed lines. Emphasize that `task_safe_wire` is the only direct `Wire` path. Style should feel like a polished embedded-systems architecture poster: precise labels, minimal clutter, balanced whitespace, readable typography, and subtle technical color accents rather than generic flowchart styling.

@@ -51,29 +51,33 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - `setget` is the current shared-variable bus between tasks and remains the approved path for task-safe cross-task integer state exchange.
 - The transport payload is currently a signed 32-bit `long` on the active ESP32 target, so all shared values must define explicit integer scaling rather than relying on implicit floating-point meaning.
 - Shared variables are now being formalized into taxonomy bands rather than remaining as one flat enum with ad hoc comments.
-- The agreed documentation series are:
-  - `0000` calibration or system
-  - `1000` raw sensor
-  - `2000` calculated
-  - `3000` fused
-  - `4000` map or navigation
-  - `5000` driver or actuator
+- The agreed documentation taxonomy is:
+
+| Series | Layer | Preferred Naming | Meaning |
+|---|---|---|---|
+| `1000` | raw | `raw*` | Direct sensor output or near-direct sensor output. |
+| `2000` | cleaned | `cleaned*` | Filtered, damped, centered, or otherwise cleaned values that are still close to one source. |
+| `3000` | calculated | `calculated*` | Fast local estimates from one sensor family or one short processing chain. |
+| `4000` | fused | `fused*` | Decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints. |
+| `7000` | map | `map*` | Shared map or navigation exchange values. |
+| `8000` | driver | `driver*` | Higher-level vehicle command or actuator intent. |
+| `9000` | config or system | `config*` or explicit calibration names | Configuration, calibration, or system support values. |
+
+- The rationale for moving configuration or calibration away from `0000` is readability: leading zeros are too easy to lose in normal prose and tables, while `9000` remains visually distinct.
 - These IDs are documentation and architecture references first; they do not yet imply a wire protocol or enum-value renumbering.
 - The architecture should distinguish clearly between:
   - active variables with current producers
   - reserved variables that have a name but no active producer yet
   - deferred variables whose subsystem concept exists but is not active in the runtime
-- Future fusion work should not write directly back into ambiguous `calc*` meanings if a stable `fuse*` layer is more appropriate.
-- The working ownership boundary is now:
-  - `calc*` = fast local estimates from one sensor family or one short processing chain
-  - `fuse*` = decision-ready estimates that combine multiple sensor families, map context, confidence rules, or planner constraints
-- For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid `calc*` values because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
+- Future fusion work should not write directly back into ambiguous `calculated*` meanings if a stable `fused*` layer is more appropriate.
+- Current code symbols still use older prefixes such as `calc*` and `fuse*`. Those remain valid implementation names for now, but the architecture language should use `calculated*` and `fused*` as the tier names.
+- For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid members of the `calculated*` layer because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
 - Fusion now lives under one `src/fusion` package rather than being split into separate package owners too early.
 - `src/fusion/fusion_service.cpp` owns two cadences:
   - a fast fusion task, currently `10 Hz`, for near-term clearance gating
   - a slow fusion task, currently `1 Hz`, as the future home for pose and map fusion
 - Helper files under the same package hold narrow rule logic without owning task lifecycle themselves.
-- The first live `fuse*` implementation now exists:
+- The first live `fused*` implementation now exists:
   - `fuseForwardClear` is published by the fast fusion task in `src/fusion/fusion_service.cpp`
   - `src/fusion/clearance_fusion.cpp` now provides helper logic only
   - current rule is intentionally minimal and conservative:
@@ -87,8 +91,8 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - The current light output ownership is:
   - pin `0`: main light
   - pin `1`: brake light
-  - pin `8`: left indicator candidate
-  - pin `9`: right indicator candidate
+  - pin `8`: left indicator 
+  - pin `9`: right indicator 
   - pin `11`: reverse light
 - `LightService` is the current owner of these outputs through one expander instance and one FreeRTOS task.
 - The current control inputs are:

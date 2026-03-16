@@ -5,6 +5,7 @@
 - Check this `.context` directory plus the root `BACKLOG.md` and `CONFLICTS.md` files for current architecture, state, task, plan, deferred work, and instruction issues.
 - If local context conflicts with MCP-served guidance, stop and ask the user which to prioritize.
 - Prefer small, reversible changes and verify with the narrowest relevant PlatformIO environment.
+- If you are about to update a file that has been thorougly tested and known to work, you have to Stop and ask the user if it is ok to modify that file.
 
 
 ## Working Rules
