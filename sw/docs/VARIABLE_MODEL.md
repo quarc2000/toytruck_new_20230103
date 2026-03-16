@@ -67,21 +67,16 @@ Current implementation note:
 
 ### Cleaned Values
 
-This layer is currently architectural rather than fully implemented as a separate set of bus variables.
+This layer is now first-class for the active MPU6050 accel and gyro path.
 
-Its purpose is to hold cleaned single-source values that are more reusable than direct raw measurements:
-
-- filtered accelerometer channels
-- centered accelerometer channels
-- deadbanded motion channels
-- filtered gyro channels
-- similar cleaned single-source values from other sensors later
-
-Current implementation note:
-
-- the active MPU6050 paths already perform cleaning before publishing several `raw*` values
-- this means some current `raw*` bus values are actually raw-data form after cleaning
-- that is acceptable short-term, but the architecture now reserves the `2000` band for a cleaner future split if these cleaned values need to become first-class bus variables
+| ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
+|---|---|---|---|---|---|---|---|---|
+| 2020 | `cleanedAccX` | cleaned | Forward-axis accelerometer after centering and filter cleanup | MPU6050 counts after zero-offset correction and env-specific filtering | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` publishes EMA-smoothed centered counts. `env:accsensorkalman` publishes Kalman-filtered centered counts. Downstream motion consumers should use this instead of `rawAccX`. |
+| 2021 | `cleanedAccY` | cleaned | Lateral-axis accelerometer after centering and filter cleanup | MPU6050 counts after zero-offset correction and env-specific filtering | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Same env difference as `cleanedAccX`. |
+| 2022 | `cleanedAccZ` | cleaned | Vertical-axis accelerometer after centering and filter cleanup | MPU6050 counts after zero-offset correction and env-specific filtering | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Same env difference as `cleanedAccX`. |
+| 2030 | `cleanedGyX` | cleaned | Gyroscope X after smoothing | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Both envs publish lightweight EMA-smoothed gyro X here. |
+| 2031 | `cleanedGyY` | cleaned | Gyroscope Y after smoothing | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Both envs publish lightweight EMA-smoothed gyro Y here. |
+| 2032 | `cleanedGyZ` | cleaned | Gyroscope Z after startup bias correction, smoothing, and deadband | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | This is the intended downstream yaw-rate input for heading integration and other consumers. |
 
 ### Raw Sensor Values
 
@@ -94,21 +89,21 @@ Current implementation note:
 | 1010 | `rawMagX` | raw | Magnetometer X axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Magnetometer path is not active on the truck today. Keep semantics provisional until the active magnetometer path is chosen. |
 | 1011 | `rawMagY` | raw | Magnetometer Y axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Same caveat as `rawMagX`. |
 | 1012 | `rawMagZ` | raw | Magnetometer Z axis | driver-dependent integer magnetometer output | signed integer | legacy `compass.cpp` path | Deferred | Same caveat as `rawMagX`. |
-| 1020 | `rawAccX` | raw | Forward-axis acceleration in the bus's centered raw-data form | MPU6050 raw counts after subtracting `zeroAx` | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The bus stores centered counts, not `m/s^2` or `mg`. `env:accsensor` publishes a locally damped EMA value with deadband and slow stationary zero tracking; `env:accsensorkalman` publishes a Kalman-filtered value. |
-| 1021 | `rawAccY` | raw | Lateral-axis acceleration in the bus's centered raw-data form | MPU6050 raw counts after subtracting `zeroAy` | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The bus stores centered counts in the startup pose. `env:accsensor` publishes a locally damped EMA value with deadband and slow stationary zero tracking; `env:accsensorkalman` publishes a Kalman-filtered value. |
-| 1022 | `rawAccZ` | raw | Vertical-axis acceleration in the bus's centered raw-data form | MPU6050 raw counts after subtracting `zeroAz` | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | The bus stores centered counts relative to startup gravity, not absolute `1g`. `env:accsensor` publishes a locally damped EMA value with deadband and slow stationary zero tracking; `env:accsensorkalman` publishes a Kalman-filtered value. |
+| 1020 | `rawAccX` | raw | Forward-axis accelerometer raw register sample | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | This is now kept as the nearest honest bus copy of the sensor reading. Centering and filtering move to `cleanedAccX`. |
+| 1021 | `rawAccY` | raw | Lateral-axis accelerometer raw register sample | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Centering and filtering move to `cleanedAccY`. |
+| 1022 | `rawAccZ` | raw | Vertical-axis accelerometer raw register sample | MPU6050 raw counts | signed integer | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Centering and filtering move to `cleanedAccZ`. |
 | 1023 | `rawTemp` | raw | MPU6050 temperature estimate in the bus's stored raw-data form | tenths of degrees C | signed integer where `365` means `36.5 C` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores this raw-data form as `degC * 10` after the datasheet conversion. Both envs currently apply a lightweight EMA before publishing. |
-| 1030 | `rawGyX` | raw | Gyroscope X axis in the bus's stored raw-data form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores this raw-data form as `deg/s * 10` using the MPU6050 default `131 LSB/dps` scale. Both envs currently apply a lightweight EMA before publishing. |
-| 1031 | `rawGyY` | raw | Gyroscope Y axis in the bus's stored raw-data form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores this raw-data form as `deg/s * 10` using the MPU6050 default `131 LSB/dps` scale. Both envs currently apply a lightweight EMA before publishing. |
-| 1032 | `rawGyZ` | raw | Gyroscope Z axis used for yaw-rate updates in the bus's stored raw-data form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores this raw-data form as `deg/s * 10` after subtracting the startup `zeroGz` calibration. Both envs currently apply a lightweight EMA before publishing. |
+| 1030 | `rawGyX` | raw | Gyroscope X axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores the nearest honest sensor-domain form as `deg/s * 10` using the MPU6050 default `131 LSB/dps` scale. Smoothing moves to `cleanedGyX`. |
+| 1031 | `rawGyY` | raw | Gyroscope Y axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Smoothing moves to `cleanedGyY`. |
+| 1032 | `rawGyZ` | raw | Gyroscope Z axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | This is the uncleaned yaw-rate publication before startup-bias correction, smoothing, and deadband. Downstream yaw-rate users should prefer `cleanedGyZ`. |
 | 1040 | `rawLidarFront` | raw | Reserved front lidar distance | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present for a future lidar path; no active producer today. |
 
 ### Calculated Values
 
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 3001 | `calcHeading` | calculated | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is now integrated from the startup-bias-corrected `rawGyZ` using a task-local sample interval and a small yaw-rate deadband. It has a stable `deg10` scale, but overall quality still depends on drift and noise. |
-| 3002 | `calcSpeed` | calculated | Forward speed estimate from the plain MPU6050 path | millimeters per second | signed integer where sign follows forward or reverse acceleration history | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now publishes a conservative estimate derived from centered `rawAccX` with thresholding, leakage, stationary reset, and clamping. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
+| 3001 | `calcHeading` | calculated | Integrated truck heading based on gyro Z over elapsed time | tenths of degrees | signed integer where `900` means `90.0 deg` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | Heading is now integrated from `cleanedGyZ` using a task-local sample interval and a small yaw-rate deadband. It has a stable `deg10` scale, but overall quality still depends on drift and noise. |
+| 3002 | `calcSpeed` | calculated | Forward speed estimate from the plain MPU6050 path | millimeters per second | signed integer where sign follows forward or reverse acceleration history | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now publishes a conservative estimate derived from `cleanedAccX` with thresholding, leakage, stationary reset, and clamping. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
 | 3003 | `calcDistance` | calculated | Forward distance estimate from the plain MPU6050 path | millimeters | signed integer accumulated from the current `calcSpeed` estimate | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active, Uncertain | `env:accsensor` now integrates the conservative speed estimate into distance. `env:accsensorkalman` still holds this at `0` while that path remains parked. |
 | 3004 | `calcXpos` | calculated | Reserved X position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
 | 3005 | `calcYpos` | calculated | Reserved Y position in world or map frame | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present in the enum, but no active producer or consumer found. |
@@ -155,7 +150,7 @@ The most important remaining semantic gaps are now about quality and fusion rath
    `calcHeading` now uses a task-local time base and a small yaw deadband, but long-term accuracy still depends on bias stability, mounting alignment, and motion outside the simplified model.
 
 2. Motion estimation beyond heading
-   `env:accsensor` now publishes a conservative accelerometer-only forward speed and distance estimate, but it is still a simplified 2D model without tilt compensation. `env:accsensorkalman` remains parked with both values held at `0`.
+   `env:accsensor` now publishes a conservative accelerometer-only forward speed and distance estimate from `cleanedAccX`, but it is still a simplified 2D model without tilt compensation. `env:accsensorkalman` remains parked with both values held at `0`.
 
 The current MPU6050 env difference is now intentional and should stay narrow:
 
@@ -169,10 +164,10 @@ This difference is implementation strategy only. Both environments should keep t
 ## Recommended Next Formalization Steps
 
 1. Keep the stored `raw*` naming honest by describing the bus value as raw-data form plus explicit integer scaling.
-2. Decide where cleaned single-source values should become explicit `cleaned*` bus variables rather than remaining folded into the current published `raw*` values.
-3. Decide later whether `rawGy*` should remain scaled raw-data form or be split into a true register-level raw value plus a calculated rate value.
+2. Decide later whether temperature should also get an explicit `cleanedTemp` path or remain a single raw converted sensor-domain value.
+3. Decide later whether `rawGy*` should remain scaled raw-data form or be split again into register-level counts plus converted sensor-domain values.
 4. Keep the decision-ready layer under `fused*` ownership rather than letting more planner-facing meaning accumulate under `calc*`.
-5. Update enum comments in `include/variables/setget.h` so they match this document.
+5. Update any remaining debug or telemetry surfaces so they expose both raw and cleaned values where comparison is useful.
 
 ## Recommended Fusion Ownership
 

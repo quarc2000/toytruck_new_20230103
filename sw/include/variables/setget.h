@@ -29,8 +29,14 @@ typedef enum {
     rawTemp,        // Stored raw-data form of temperature, currently encoded as degC * 10.
     rawGyX,         // Stored raw-data form of gyro X, encoded as deg/s * 10.
     rawGyY,         // Stored raw-data form of gyro Y, encoded as deg/s * 10.
-    rawGyZ,         // Stored raw-data form of gyro Z, encoded as deg/s * 10 after zero-offset correction.
+    rawGyZ,         // Stored raw-data form of gyro Z, encoded as deg/s * 10 before cleaning.
     rawLidarFront,  // Reserved front lidar distance, intended to be mm when activated.
+    cleanedAccX,    // Filtered and centered forward accelerometer value in MPU6050 counts.
+    cleanedAccY,    // Filtered and centered lateral accelerometer value in MPU6050 counts.
+    cleanedAccZ,    // Filtered and centered vertical accelerometer value in MPU6050 counts.
+    cleanedGyX,     // Filtered gyro X value in deg/s * 10.
+    cleanedGyY,     // Filtered gyro Y value in deg/s * 10.
+    cleanedGyZ,     // Filtered and bias-corrected gyro Z value in deg/s * 10.
     calcHeading,    // Current integrated heading estimate in deg * 10.
     calcSpeed,      // Current integrated forward speed estimate in mm/s.
     calcDistance,   // Current integrated forward distance estimate in mm.

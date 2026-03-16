@@ -138,12 +138,16 @@ static void accel_task(void *pvParameters)
         long zAz = globalVar_get(zeroAz);
         const long zGz = globalVar_get(zeroGz);
 
-        const int32_t filteredGyX = applyEma(globalVar_get(rawGyX), mpu6050GyroRawToDegPs10(GyX), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
-        const int32_t filteredGyY = applyEma(globalVar_get(rawGyY), mpu6050GyroRawToDegPs10(GyY), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
-        const int32_t filteredGyZ = applyGyroDeadband(
-            applyEma(globalVar_get(rawGyZ), -mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz)), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
+        const int32_t rawGyX_dps10 = mpu6050GyroRawToDegPs10(GyX);
+        const int32_t rawGyY_dps10 = mpu6050GyroRawToDegPs10(GyY);
+        const int32_t rawGyZ_dps10 = -mpu6050GyroRawToDegPs10(GyZ_raw);
 
-        if (accelBiasCanTrack(globalVar_get(rawAccX), globalVar_get(rawAccY), globalVar_get(rawAccZ), filteredGyX, filteredGyY, filteredGyZ))
+        const int32_t filteredGyX = applyEma(globalVar_get(cleanedGyX), rawGyX_dps10, MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
+        const int32_t filteredGyY = applyEma(globalVar_get(cleanedGyY), rawGyY_dps10, MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
+        const int32_t filteredGyZ = applyGyroDeadband(
+            applyEma(globalVar_get(cleanedGyZ), -mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz)), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
+
+        if (accelBiasCanTrack(globalVar_get(cleanedAccX), globalVar_get(cleanedAccY), globalVar_get(cleanedAccZ), filteredGyX, filteredGyY, filteredGyZ))
         {
             zAx = trackZeroBias(zAx, AcX);
             zAy = trackZeroBias(zAy, AcY);
@@ -155,25 +159,34 @@ static void accel_task(void *pvParameters)
 
         // The Kalman env differs only in accelerometer filtering, but still
         // shares the same centered raw-data contract and stationary bias tracking.
-        const int32_t filteredAcX = applyAccelDeadband(static_cast<int32_t>(kalmanFilterX.updateEstimate((int)AcX - zAx)));
-        globalVar_set(rawAccX, filteredAcX);
+        const int32_t filteredAcX = static_cast<int32_t>(kalmanFilterX.updateEstimate((int)AcX - zAx));
+        const int32_t filteredAcY = static_cast<int32_t>(kalmanFilterY.updateEstimate(AcY - zAy));
+        const int32_t filteredAcZ = static_cast<int32_t>(kalmanFilterZ.updateEstimate(AcZ - zAz));
+
+        globalVar_set(rawAccX, AcX);
+        globalVar_set(rawAccY, AcY);
+        globalVar_set(rawAccZ, AcZ);
+        globalVar_set(cleanedAccX, filteredAcX);
+        globalVar_set(cleanedAccY, filteredAcY);
+        globalVar_set(cleanedAccZ, filteredAcZ);
         (void)mpu6050AccelRawToMmPs2(filteredAcX);
         // Keep the Kalman and non-Kalman envs comparable: both should avoid
         // publishing inertial-only speed and distance until tilt-compensated
         // motion estimation exists.
         globalVar_set(calcSpeed, 0);
         globalVar_set(calcDistance, 0);
-        globalVar_set(rawAccY, applyAccelDeadband(static_cast<int32_t>(kalmanFilterY.updateEstimate(AcY - zAy))));
-        globalVar_set(rawAccZ, applyAccelDeadband(static_cast<int32_t>(kalmanFilterZ.updateEstimate(AcZ - zAz))));
         globalVar_set(rawTemp, applyEma(globalVar_get(rawTemp), mpu6050TempRawToDegC10(Tmp), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
-        globalVar_set(rawGyX, filteredGyX);
-        globalVar_set(rawGyY, filteredGyY);
+        globalVar_set(rawGyX, rawGyX_dps10);
+        globalVar_set(rawGyY, rawGyY_dps10);
+        globalVar_set(rawGyZ, rawGyZ_dps10);
+        globalVar_set(cleanedGyX, filteredGyX);
+        globalVar_set(cleanedGyY, filteredGyY);
+        globalVar_set(cleanedGyZ, filteredGyZ);
         //-----------------------
         // Z dimension of the gyro gives us how quickly the direction of the truck changes
         const long GyZ_degps10 = filteredGyZ;
         const long old_heading = globalVar_get(calcHeading);
         globalVar_set(calcHeading, old_heading + divideRoundNearest(GyZ_degps10 * dt_ms, 1000));
-        globalVar_set(rawGyZ, GyZ_degps10);
         task_safe_wire_end();
         //------------
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -186,6 +199,12 @@ void ACCsensor::Begin()
     globalVar_set(calcSpeed, 0);
     globalVar_set(calcDistance, 0);
     globalVar_set(calcHeading, 0);
+    globalVar_set(cleanedAccX, 0);
+    globalVar_set(cleanedAccY, 0);
+    globalVar_set(cleanedAccZ, 0);
+    globalVar_set(cleanedGyX, 0);
+    globalVar_set(cleanedGyY, 0);
+    globalVar_set(cleanedGyZ, 0);
     globalVar_set(zeroAy, 0);
     globalVar_set(zeroAz, 0);
     globalVar_set(zeroGz, 0);

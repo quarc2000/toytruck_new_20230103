@@ -42,7 +42,7 @@ void LightService::runTask()
 
         const long steer = globalVar_get(steerDirection);
         const long desiredSpeed = globalVar_get(driver_desired_speed);
-        const long longitudinalAcc = globalVar_get(rawAccX);
+        const long longitudinalAcc = globalVar_get(cleanedAccX);
 
         const bool brakeOn = longitudinalAcc <= BRAKE_DECEL_THRESHOLD_COUNTS;
         const bool leftRequested = steer < -INDICATOR_STEER_THRESHOLD;

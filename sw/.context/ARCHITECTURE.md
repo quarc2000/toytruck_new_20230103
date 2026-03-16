@@ -3,6 +3,9 @@
 ## Overview
 This repository is a PlatformIO-based ESP32 Arduino firmware project for small modular toy trucks with multiple hardware configurations. The physical controller is a bespoke board designed by Par, but for firmware and build purposes it should be treated as an ESP32 DevKit v4 style target. The codebase is organized around reusable modules for actuators, sensors, telemetry, configuration, and robot behavior, with several dedicated `z_main_*.cpp` entry points used to build targeted hardware or subsystem test firmware.
 
+##The use of libraries
+- Most libraries can not be used as we do not know if they are task safe. For instance we cannot use any libraries using
+
 ## Current Structure
 - `platformio.ini` defines many separate environments instead of one canonical production target.
 - The controller hardware is custom, but the PlatformIO board abstraction is `esp32dev`.
@@ -71,6 +74,9 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - deferred variables whose subsystem concept exists but is not active in the runtime
 - Future fusion work should not write directly back into ambiguous `calculated*` meanings if a stable `fused*` layer is more appropriate.
 - Current code symbols still use older prefixes such as `calc*` and `fuse*`. Those remain valid implementation names for now, but the architecture language should use `calculated*` and `fused*` as the tier names.
+- The current MPU6050 split is now intended to be:
+  - `rawAcc*` and `rawGy*` = nearest honest sensor-domain publication
+  - `cleanedAcc*` and `cleanedGy*` = filtered, centered, and bias-corrected motion inputs for downstream use
 - For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid members of the `calculated*` layer because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
 - Fusion now lives under one `src/fusion` package rather than being split into separate package owners too early.
 - `src/fusion/fusion_service.cpp` owns two cadences:
@@ -96,7 +102,7 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - pin `11`: reverse light
 - `LightService` is the current owner of these outputs through one expander instance and one FreeRTOS task.
 - The current control inputs are:
-  - `rawAccX` for first-pass brake detection from longitudinal deceleration
+  - `cleanedAccX` for first-pass brake detection from longitudinal deceleration
   - `steerDirection` for indicator flashing demand
   - `driver_desired_speed` for reverse-light demand
 - Main-light policy is intentionally left undecided for now and is kept off in the first automated light-service pass so brake, indicator, and reverse behavior remain easy to verify.

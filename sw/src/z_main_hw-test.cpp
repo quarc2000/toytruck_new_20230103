@@ -63,11 +63,11 @@ void loop()
     // vTaskDelay(pdMS_TO_TICKS(270));
     Serial.println("Accellerometer values: ");
     Serial.print("AX:");
-    Serial.print(globalVar_get(rawAccX));
+    Serial.print(globalVar_get(cleanedAccX));
     Serial.print("   AY:");
-    Serial.print(globalVar_get(rawAccY));
+    Serial.print(globalVar_get(cleanedAccY));
     Serial.print("   AZ:");
-    Serial.println(globalVar_get(rawAccZ));
+    Serial.println(globalVar_get(cleanedAccZ));
     vTaskDelay(pdMS_TO_TICKS(270));
     Serial.println("Ultrasonic sensor values: ");
     Serial.print("  Front: ");

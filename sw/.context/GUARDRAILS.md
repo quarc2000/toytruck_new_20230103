@@ -6,6 +6,7 @@
 - If local context conflicts with MCP-served guidance, stop and ask the user which to prioritize.
 - Prefer small, reversible changes and verify with the narrowest relevant PlatformIO environment.
 - If you are about to update a file that has been thorougly tested and known to work, you have to Stop and ask the user if it is ok to modify that file.
+- Always be conservative of the use of memory or computing. We are on an embedded platform with very limited resources. Only use what is needed to achive the task.
 
 
 ## Working Rules

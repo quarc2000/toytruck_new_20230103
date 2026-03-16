@@ -80,15 +80,6 @@ static int32_t applyGyroDeadband(int32_t yaw_rate_dps10)
     return yaw_rate_dps10;
 }
 
-static int32_t applyAccelDeadband(int32_t centered_accel_counts)
-{
-    if (abs(centered_accel_counts) < MPU6050_ACCEL_DEADBAND_COUNTS)
-    {
-        return 0;
-    }
-    return centered_accel_counts;
-}
-
 static bool accelBiasCanTrack(int32_t acc_x, int32_t acc_y, int32_t acc_z, int32_t gy_x, int32_t gy_y, int32_t gy_z)
 {
     return abs(acc_x) < MPU6050_STATIONARY_ACCEL_THRESHOLD_COUNTS &&
@@ -163,12 +154,16 @@ static void accel_task(void *pvParameters)
         long zAz = globalVar_get(zeroAz);
         const long zGz = globalVar_get(zeroGz);
 
-        const int32_t filteredGyX = applyEma(globalVar_get(rawGyX), mpu6050GyroRawToDegPs10(GyX), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
-        const int32_t filteredGyY = applyEma(globalVar_get(rawGyY), mpu6050GyroRawToDegPs10(GyY), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
-        const int32_t filteredGyZ = applyGyroDeadband(
-            applyEma(globalVar_get(rawGyZ), -mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz)), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
+        const int32_t rawGyX_dps10 = mpu6050GyroRawToDegPs10(GyX);
+        const int32_t rawGyY_dps10 = mpu6050GyroRawToDegPs10(GyY);
+        const int32_t rawGyZ_dps10 = -mpu6050GyroRawToDegPs10(GyZ_raw);
 
-        if (accelBiasCanTrack(globalVar_get(rawAccX), globalVar_get(rawAccY), globalVar_get(rawAccZ), filteredGyX, filteredGyY, filteredGyZ))
+        const int32_t filteredGyX = applyEma(globalVar_get(cleanedGyX), rawGyX_dps10, MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
+        const int32_t filteredGyY = applyEma(globalVar_get(cleanedGyY), rawGyY_dps10, MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR);
+        const int32_t filteredGyZ = applyGyroDeadband(
+            applyEma(globalVar_get(cleanedGyZ), -mpu6050GyroRawToDegPs10(static_cast<int16_t>(GyZ_raw - zGz)), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
+
+        if (accelBiasCanTrack(globalVar_get(cleanedAccX), globalVar_get(cleanedAccY), globalVar_get(cleanedAccZ), filteredGyX, filteredGyY, filteredGyZ))
         {
             zAx = trackZeroBias(zAx, AcX);
             zAy = trackZeroBias(zAy, AcY);
@@ -181,18 +176,18 @@ static void accel_task(void *pvParameters)
         // The plain env publishes a more strongly damped accelerometer signal on
         // each MPU6050 channel to reduce visible jitter while keeping the path local.
         const int32_t filteredAccX_counts_continuous =
-            applyEma(globalVar_get(rawAccX), static_cast<int32_t>(AcX) - zAx, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
+            applyEma(globalVar_get(cleanedAccX), static_cast<int32_t>(AcX) - zAx, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
         const int32_t filteredAccY_counts_continuous =
-            applyEma(globalVar_get(rawAccY), static_cast<int32_t>(AcY) - zAy, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
+            applyEma(globalVar_get(cleanedAccY), static_cast<int32_t>(AcY) - zAy, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
         const int32_t filteredAccZ_counts_continuous =
-            applyEma(globalVar_get(rawAccZ), static_cast<int32_t>(AcZ) - zAz, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
+            applyEma(globalVar_get(cleanedAccZ), static_cast<int32_t>(AcZ) - zAz, MPU6050_ACCEL_EMA_ALPHA_NUMERATOR, MPU6050_ACCEL_EMA_ALPHA_DENOMINATOR);
 
-        const int32_t filteredAccX_counts = applyAccelDeadband(filteredAccX_counts_continuous);
-        const int32_t filteredAccY_counts = applyAccelDeadband(filteredAccY_counts_continuous);
-        const int32_t filteredAccZ_counts = applyAccelDeadband(filteredAccZ_counts_continuous);
-        globalVar_set(rawAccX, filteredAccX_counts);
-        globalVar_set(rawAccY, filteredAccY_counts);
-        globalVar_set(rawAccZ, filteredAccZ_counts);
+        globalVar_set(rawAccX, AcX);
+        globalVar_set(rawAccY, AcY);
+        globalVar_set(rawAccZ, AcZ);
+        globalVar_set(cleanedAccX, filteredAccX_counts_continuous);
+        globalVar_set(cleanedAccY, filteredAccY_counts_continuous);
+        globalVar_set(cleanedAccZ, filteredAccZ_counts_continuous);
 
         const bool stationary_now = accelBiasCanTrack(
             filteredAccX_counts_continuous,
@@ -266,14 +261,17 @@ static void accel_task(void *pvParameters)
         globalVar_set(calcSpeed, speed_mmps);
         globalVar_set(calcDistance, distance_mm);
         globalVar_set(rawTemp, applyEma(globalVar_get(rawTemp), mpu6050TempRawToDegC10(Tmp), MPU6050_AUX_EMA_ALPHA_NUMERATOR, MPU6050_AUX_EMA_ALPHA_DENOMINATOR));
-        globalVar_set(rawGyX, filteredGyX);
-        globalVar_set(rawGyY, filteredGyY);
+        globalVar_set(rawGyX, rawGyX_dps10);
+        globalVar_set(rawGyY, rawGyY_dps10);
+        globalVar_set(rawGyZ, rawGyZ_dps10);
+        globalVar_set(cleanedGyX, filteredGyX);
+        globalVar_set(cleanedGyY, filteredGyY);
+        globalVar_set(cleanedGyZ, filteredGyZ);
         //-----------------------
         // Z dimension of the gyro gives us how quickly the direction of the truck changes
         const long GyZ_degps10 = filteredGyZ;
         const long old_heading = globalVar_get(calcHeading);
         globalVar_set(calcHeading, old_heading + divideRoundNearest(GyZ_degps10 * dt_ms, 1000));
-        globalVar_set(rawGyZ, GyZ_degps10);
         task_safe_wire_end();
         //------------
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -286,6 +284,12 @@ void ACCsensor::Begin()
     globalVar_set(calcSpeed,0);
     globalVar_set(calcDistance,0);
     globalVar_set(calcHeading,0);
+    globalVar_set(cleanedAccX,0);
+    globalVar_set(cleanedAccY,0);
+    globalVar_set(cleanedAccZ,0);
+    globalVar_set(cleanedGyX,0);
+    globalVar_set(cleanedGyY,0);
+    globalVar_set(cleanedGyZ,0);
     globalVar_set(zeroAy, 0);
     globalVar_set(zeroAz, 0);
     globalVar_set(zeroGz, 0);

@@ -12,6 +12,14 @@
   - `9000` config or system
 - Replaced the separate series and naming bullets with aligned taxonomy tables in the architecture and variable-model docs.
 - Kept current `calc*` and `fuse*` code symbols stable while documenting them as members of the broader `calculated*` and `fused*` layers.
+- Split the MPU6050 accel and gyro publications so true `raw*` values stay available while `cleanedAcc*` and `cleanedGy*` carry the filtered or centered motion signals.
+- Updated downstream consumers to use the cleaned layer where filtered motion data is intended, including light-service logic, MPU6050 debug views, `hwtest`, and the basic telemetry pages.
+- Verified the affected environments compile:
+  - `accsensor`
+  - `accsensorkalman`
+  - `hwtest`
+  - `basictelemetry`
+  - `basictelemetrymin`
 
 ## In Progress
 - No active plan. Waiting for the next task.

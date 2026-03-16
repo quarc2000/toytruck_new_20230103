@@ -29,7 +29,11 @@ void setup()
     globalVar_set(rawAccX, fakeAccX);
     globalVar_set(rawAccY, 0);
     globalVar_set(rawAccZ, 0);
+    globalVar_set(cleanedAccX, fakeAccX);
+    globalVar_set(cleanedAccY, 0);
+    globalVar_set(cleanedAccZ, 0);
     globalVar_set(rawGyZ, 0);
+    globalVar_set(cleanedGyZ, 0);
     globalVar_set(calcHeading, fakeHeading);
     globalVar_set(fuseForwardClear, 1);
     globalVar_set(steerDirection, 0);
@@ -55,7 +59,9 @@ void loop()
         globalVar_set(rawDistFront, fakeFrontDist);
         globalVar_set(rawDistBack, fakeFrontDist + 20);
         globalVar_set(rawAccX, fakeAccX);
+        globalVar_set(cleanedAccX, fakeAccX);
         globalVar_set(rawGyZ, fakeAccX);
+        globalVar_set(cleanedGyZ, fakeAccX);
         globalVar_set(calcHeading, fakeHeading);
         globalVar_set(fuseForwardClear, fakeFrontDist > 60 ? 1 : 0);
     }

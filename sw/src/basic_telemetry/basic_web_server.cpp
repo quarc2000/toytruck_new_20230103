@@ -99,7 +99,10 @@ String BasicWebServerService::renderIndexPage() const
     html += "<tr><td>rawAccX</td><td>" + String(globalVar_get(rawAccX)) + "</td></tr>";
     html += "<tr><td>rawAccY</td><td>" + String(globalVar_get(rawAccY)) + "</td></tr>";
     html += "<tr><td>rawAccZ</td><td>" + String(globalVar_get(rawAccZ)) + "</td></tr>";
-    html += "<tr><td>rawGyZ</td><td>" + String(globalVar_get(rawGyZ)) + "</td></tr>";
+    html += "<tr><td>cleanedAccX</td><td>" + String(globalVar_get(cleanedAccX)) + "</td></tr>";
+    html += "<tr><td>cleanedAccY</td><td>" + String(globalVar_get(cleanedAccY)) + "</td></tr>";
+    html += "<tr><td>cleanedAccZ</td><td>" + String(globalVar_get(cleanedAccZ)) + "</td></tr>";
+    html += "<tr><td>cleanedGyZ</td><td>" + String(globalVar_get(cleanedGyZ)) + "</td></tr>";
     html += "<tr><td>calcHeading</td><td>" + String(globalVar_get(calcHeading)) + "</td></tr>";
     html += "<tr><td>fuseForwardClear</td><td>" + String(globalVar_get(fuseForwardClear)) + "</td></tr>";
     html += "<tr><td>steerDirection</td><td>" + String(globalVar_get(steerDirection)) + "</td></tr>";
@@ -124,7 +127,10 @@ String BasicWebServerService::renderStatusJson() const
     json += "\"rawAccX\":" + String(globalVar_get(rawAccX)) + ",";
     json += "\"rawAccY\":" + String(globalVar_get(rawAccY)) + ",";
     json += "\"rawAccZ\":" + String(globalVar_get(rawAccZ)) + ",";
-    json += "\"rawGyZ\":" + String(globalVar_get(rawGyZ)) + ",";
+    json += "\"cleanedAccX\":" + String(globalVar_get(cleanedAccX)) + ",";
+    json += "\"cleanedAccY\":" + String(globalVar_get(cleanedAccY)) + ",";
+    json += "\"cleanedAccZ\":" + String(globalVar_get(cleanedAccZ)) + ",";
+    json += "\"cleanedGyZ\":" + String(globalVar_get(cleanedGyZ)) + ",";
     json += "\"calcHeading\":" + String(globalVar_get(calcHeading)) + ",";
     json += "\"fuseForwardClear\":" + String(globalVar_get(fuseForwardClear)) + ",";
     json += "\"steerDirection\":" + String(globalVar_get(steerDirection)) + ",";
