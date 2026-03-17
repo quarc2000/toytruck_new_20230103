@@ -1,7 +1,7 @@
 # Task
 
 ## Active Task
-No active task.
+Apply the user-requested temporary XY bias correction in the GY-271 bench service output and heading calculation, then rebuild and flash `env:gy271service` for immediate retest.
 
 ## Note
-The MPU6050 raw-versus-cleaned split is complete. True raw accel and gyro values are now preserved, explicit `cleanedAcc*` and `cleanedGy*` values exist, and downstream consumers that depend on filtered motion data now use the cleaned layer.
+This is a small temporary retuning step on top of the deferred GY-271 work. The broader magnetometer task remains deferred in `BACKLOG.md`.

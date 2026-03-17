@@ -1,5 +1,11 @@
 # Project Agent Context
 
+## Active Truck Model
+- `ACTIVE_TRUCK_MODEL = PAT004`
+- Primary model reference pattern: `.context/resources/truck_models/<ACTIVE_TRUCK_MODEL>.md`
+- This section is the single source of truth for which truck model is currently active.
+- If the user changes the active truck model, update only this section unless the model change itself requires wider documentation changes.
+
 ## Project Goal
 This project is using small modular toy trucks with added control board (ESP32) and with sensors. The scale of the truck is about 20:1. In the basic shape the truck has engines for both boith left and right rear wheels separately. And a servo for controlling the steering. There are aother configurations. It also had utrasound sensors in all 4 directions as well as a 6050 accelerometer and gyro. The truck also has an expansion board via i2c that has additional IO, used for the lights, and also an I2C switch which allows for plugging in more I2c devices like LV0x and Lv5x TOF laser sensors. The idea is to navigate autonomously in a laburinth.
 
@@ -33,6 +39,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 | [.context/TOOLS.md](.context/TOOLS.md) | Provides information on which tools are available and which are not, to avoid guessing |
 | [.context/ILLUSTRATION_FORMAT.md](.context/ILLUSTRATION_FORMAT.md) | Default style guide for future illustration prompts and architecture visuals. |
 | [.context/resources/README.md](.context/resources/README.md) | Index for hardware/resource reference files. |
+| [.context/resources/truck_models/README.md](.context/resources/truck_models/README.md) | Index for truck-variant documentation and the available model files. |
 | [CONFLICTS.md](CONFLICTS.md) | A file containing all identified conflicts between instructions, rules and policies. |
 | [BACKLOG.md](BACKLOG.md) | Where we put anything we figure out we need to do, but it is not part of the current TASK. |
 | [DECISIONS.md](DECISIONS.md) | Significant project decisions must be logged here with date and username. Context-architecture housekeeping and simple backlog deferrals do not belong here. |
@@ -49,6 +56,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - Keep `.context/PLAN.md` plan for achiving the task and info so that another agent can resume from it without re-discovery. Has a completed, work in progress, and remaining section. COntinously updated by the agent.
 - Keep `.context/TASK.md` aligned with the real active task definition only. Do not update until TASK has be finialised or cancelled. 
 - Update `.context/ARCHITECTURE.md` whenever architecture/buffer-model/state-machine decisions change.
+- Keep the active truck model declaration in this file accurate and visible, and keep the truck-model notes under `.context/resources/truck_models/` aligned with real hardware understanding.
 - If anything in resources appears incorrect, ask the user before changing it.
 
 ## Standing permissions 
@@ -62,6 +70,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 
 ## Maintenance Instructions
 - `STATE.md`, `PLAN.md`, and `TASK.md` are mandatory working memory, not optional cleanup. The agent MUST update them during the work, not later, so they remain accurate after every meaningful step.
+- Before substantial implementation work, the agent MUST verify that the active truck model declared above matches any model-specific assumptions in code, config, docs, and test setup. If the task targets a different physical truck, the agent MUST update the active model declaration or ask the user to resolve the mismatch before continuing.
 - The agent MUST NOT leave code, docs, or configuration changes in place while `STATE.md`, `PLAN.md`, or `TASK.md` still describe an older state.
 - For every non-trivial task, the agent MUST first turn the task into a step-by-step execution plan in `.context/PLAN.md` before doing substantial implementation work.
 - The agent MUST then work from that plan rather than improvising from memory alone.
@@ -85,6 +94,7 @@ This project is using small modular toy trucks with added control board (ESP32) 
 - If there is no active task, `.context/TASK.md` should say that plainly and remain minimal.
 - Execution progress, subtask status, and next implementation steps belong in `.context/PLAN.md`.
 - Keep resource files updated via `.context/resources/README.md` index.
+- When truck-model files are added or changed, the agent MUST update `.context/resources/truck_models/README.md` and keep the active truck model declaration in `AGENTS.md` accurate if the project focus has changed.
 - When the user requests an illustration prompt, diagram prompt, architecture poster prompt, or similar visual-generation prompt, the agent MUST first consult `.context/ILLUSTRATION_FORMAT.md` and use it as the default style baseline unless the user explicitly asks for a different style.
 - Illustration prompts should keep on-image text to the minimum necessary for understanding, because current image models are poor at rendering dense text cleanly.
 - Use the root `CONFLICTS.md` as the formal conflict register and keep it in table format.

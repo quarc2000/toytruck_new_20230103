@@ -22,3 +22,4 @@ This directory is the configured MCP resource root for local development.
 - `datasheets/README.md` for the current chip datasheet index and direct source URLs for the chips identified from code and board notes.
 - `chip_notes/README.md` for distilled per-chip Markdown notes that capture reusable findings from datasheets, experiments, and verified code review.
 - `boards/README.md` for board-level and module-level hardware notes such as the IO expander and the Waveshare TOF Laser Range Sensor Mini.
+- `truck_models/README.md` for whole-vehicle variant notes such as dimensions, drive layout, installed sensor sets, and model-specific hardware assumptions.

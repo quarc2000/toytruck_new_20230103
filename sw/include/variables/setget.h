@@ -42,6 +42,8 @@ typedef enum {
     calcDistance,   // Current integrated forward distance estimate in mm.
     calcXpos,       // Reserved X position in world/map frame.
     calcYpos,       // Reserved Y position in world/map frame.
+    calculatedMagCourse, // Calculated magnetic course (tenths of degrees, 0=north, 900=east, etc.)
+    calculatedMagDisturbance, // Boolean: 1 if magnetic disturbance detected, 0 otherwise
     mapObservedPosePacked,      // Packed x,y,direction,speed bytes. -128 in any field means unknown.
     mapProgrammedPosePacked,    // Packed x,y,direction,speed bytes. -128 in any field means unknown.
     mapObservedCellSizeMm,      // Observed-map cell size in mm per cell.

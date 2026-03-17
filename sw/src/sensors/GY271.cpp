@@ -1,120 +1,198 @@
 #include <sensors/GY271.h>
+
 #include <math.h>
 #include <task_safe_wire.h>
 
+namespace {
+constexpr uint8_t QMC5883L_REG_XOUT_L = 0x00;
+constexpr uint8_t QMC5883L_REG_STATUS = 0x06;
+constexpr uint8_t QMC5883L_REG_CONTROL1 = 0x09;
+constexpr uint8_t QMC5883L_REG_CONTROL2 = 0x0A;
+constexpr uint8_t QMC5883L_REG_SET_RESET = 0x0B;
+constexpr uint8_t QMC5883L_REG_CHIP_ID = 0x0D;
 
-GY271::GY271(uint8_t address) : _address(address), _x(0), _y(0), _z(0) {
-}
+constexpr uint8_t QMC5883L_STATUS_DRDY = 0x01;
+constexpr uint8_t QMC5883L_STATUS_OVL = 0x02;
+constexpr uint8_t QMC5883L_STATUS_DOR = 0x04;
 
-bool GY271::begin() {
-    // Set the sensor to continuous measurement mode
+constexpr uint8_t QMC5883L_CONTROL1_CONT_10HZ_8G_OSR512 = 0x11;
+constexpr uint8_t QMC5883L_CONTROL2_SOFT_RESET = 0x80;
+constexpr uint8_t QMC5883L_SET_RESET_RECOMMENDED = 0x01;
+constexpr uint8_t QMC5883L_CHIP_ID_EXPECTED = 0xFF;
+} // namespace
+
+GY271::GY271(uint8_t address) : _address(address), _x(0), _y(0), _z(0) {}
+
+bool GY271::writeRegister(uint8_t reg, uint8_t value)
+{
     task_safe_wire_begin(_address);
-    task_safe_wire_write(0x09);  // Register for mode configuration
-    task_safe_wire_write(0x1D);  // Continuous measurement mode
-    task_safe_wire_end();
-
-        // Set to 2 Gauss sensitivity
-        task_safe_wire_begin(_address);
-        task_safe_wire_write(0x09);  // Control register
-        task_safe_wire_write(0x01);  // Set to 2 Gauss sensitivity
-        task_safe_wire_end();
-
-    delay(100);  // Wait for the sensor to initialize
-
-    return true;  // Always returns true for simplicity (can add checks if needed)
+    task_safe_wire_write(reg);
+    task_safe_wire_write(value);
+    const uint8_t result = task_safe_wire_end();
+    return result == 0;
 }
 
-void GY271::readData(int16_t &x, int16_t &y, int16_t &z) {
+bool GY271::readRegister(uint8_t reg, uint8_t &value)
+{
+    task_safe_wire_begin(_address);
+    task_safe_wire_write(reg);
+    task_safe_wire_restart();
+    const uint8_t count = task_safe_wire_request_from(_address, static_cast<uint8_t>(1));
+    if (count != 1) {
+        task_safe_wire_end();
+        return false;
+    }
+
+    value = static_cast<uint8_t>(task_safe_wire_read());
+    task_safe_wire_end();
+    return true;
+}
+
+bool GY271::begin()
+{
+    uint8_t chip_id = 0;
+    if (!readChipId(chip_id)) {
+        return false;
+    }
+
+    // Datasheet setup example:
+    // 1. Optional soft reset to restore defaults.
+    // 2. Write 0x0B = 0x01 to define set/reset period.
+    // 3. Write 0x09 for continuous mode. For human-readable debug we use
+    //    10 Hz instead of the datasheet's 200 Hz example so the service does
+    //    not sit in permanent data-overrun when polled at a modest rate.
+    if (!writeRegister(QMC5883L_REG_CONTROL2, QMC5883L_CONTROL2_SOFT_RESET)) {
+        return false;
+    }
+    delay(10);
+
+    if (!writeRegister(QMC5883L_REG_SET_RESET, QMC5883L_SET_RESET_RECOMMENDED)) {
+        return false;
+    }
+    delay(10);
+
+    if (!writeRegister(QMC5883L_REG_CONTROL1, QMC5883L_CONTROL1_CONT_10HZ_8G_OSR512)) {
+        return false;
+    }
+    delay(10);
+
+    uint8_t control1 = 0;
+    uint8_t set_reset = 0;
+    if (!readControl1(control1) || !readSetResetPeriod(set_reset)) {
+        return false;
+    }
+
+    return chip_id == QMC5883L_CHIP_ID_EXPECTED &&
+           control1 == QMC5883L_CONTROL1_CONT_10HZ_8G_OSR512 &&
+           set_reset == QMC5883L_SET_RESET_RECOMMENDED;
+}
+
+void GY271::readData(int16_t &x, int16_t &y, int16_t &z)
+{
     updateData();
     x = _x;
     y = _y;
     z = _z;
 }
 
-int16_t GY271::getX() {
+bool GY271::readDataBlock(int16_t &x, int16_t &y, int16_t &z)
+{
+    task_safe_wire_begin(_address);
+    task_safe_wire_write(QMC5883L_REG_XOUT_L);
+    task_safe_wire_restart();
+
+    const uint8_t count = task_safe_wire_request_from(_address, static_cast<uint8_t>(6));
+    if (count != 6) {
+        task_safe_wire_end();
+        return false;
+    }
+
+    const uint8_t xl = static_cast<uint8_t>(task_safe_wire_read());
+    const uint8_t xh = static_cast<uint8_t>(task_safe_wire_read());
+    const uint8_t yl = static_cast<uint8_t>(task_safe_wire_read());
+    const uint8_t yh = static_cast<uint8_t>(task_safe_wire_read());
+    const uint8_t zl = static_cast<uint8_t>(task_safe_wire_read());
+    const uint8_t zh = static_cast<uint8_t>(task_safe_wire_read());
+    task_safe_wire_end();
+
+    x = static_cast<int16_t>(static_cast<uint16_t>(xl) | (static_cast<uint16_t>(xh) << 8));
+    y = static_cast<int16_t>(static_cast<uint16_t>(yl) | (static_cast<uint16_t>(yh) << 8));
+    z = static_cast<int16_t>(static_cast<uint16_t>(zl) | (static_cast<uint16_t>(zh) << 8));
+    return true;
+}
+
+int16_t GY271::getX()
+{
     updateData();
     return _x;
 }
 
-int16_t GY271::getY() {
+int16_t GY271::getY()
+{
     updateData();
     return _y;
 }
 
-int16_t GY271::getZ() {
+int16_t GY271::getZ()
+{
     updateData();
     return _z;
 }
 
-void GY271::updateData() {
-    // Request the data starting from register 0x00 (the data output register)
-    task_safe_wire_begin(_address);
-    task_safe_wire_write(0x00);  // Register address for data output
-    task_safe_wire_restart();
-    
-    // Request 6 bytes of data (3 values: X, Y, Z)
-    task_safe_wire_request_from(_address, 6);
-    
-    _x = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for X
-    _y = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Y
-    _z = (task_safe_wire_read() << 8) | task_safe_wire_read();  // Combine high and low bytes for Z
-    task_safe_wire_end();
+bool GY271::readStatus(uint8_t &status)
+{
+    return readRegister(QMC5883L_REG_STATUS, status);
 }
 
-// Assuming _x, _y, and _z hold the raw magnetometer data from the QMC5883L sensor
+bool GY271::readControl1(uint8_t &value)
+{
+    return readRegister(QMC5883L_REG_CONTROL1, value);
+}
 
-int GY271::getCompassDirection() {
-    // Step 1: Get the raw magnetometer data
-    updateData();  // Ensure the data is updated
-    
-    // Step 2: Earth's magnetic field at Stockholm, Sweden (in nT)
-    float B_expected = 52075.3;  // Magnetic field strength in nT
-    float inclination = 74.17;   // Magnetic inclination in degrees for Stockholm
+bool GY271::readControl2(uint8_t &value)
+{
+    return readRegister(QMC5883L_REG_CONTROL2, value);
+}
 
-    // Convert inclination angle to radians
-    float inclination_radians = inclination * M_PI / 180.0;
+bool GY271::readSetResetPeriod(uint8_t &value)
+{
+    return readRegister(QMC5883L_REG_SET_RESET, value);
+}
 
-    // Raw data from the magnetometer
-    float xMag = (float)_x;
-    float yMag = (float)_y;
-    float zMag = (float)_z;
-    
-    // Step 3: Calculate the magnitude of the raw magnetic vector
-    float magnitude = sqrt(xMag * xMag + yMag * yMag + zMag * zMag);
-    
-    // If magnitude is not zero, normalize the vector to the expected field strength
-    if (magnitude > 0) {
-        // Scale factor to adjust the vector's magnitude to the expected field strength
-        float scaleFactor = B_expected / magnitude;
-        
-        // Normalize each component of the magnetic vector
-        xMag *= scaleFactor;
-        yMag *= scaleFactor;
-        zMag *= scaleFactor;
+bool GY271::readChipId(uint8_t &value)
+{
+    return readRegister(QMC5883L_REG_CHIP_ID, value);
+}
+
+bool GY271::isDataReady()
+{
+    uint8_t status = 0;
+    return readStatus(status) && ((status & QMC5883L_STATUS_DRDY) != 0);
+}
+
+void GY271::updateData()
+{
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t z = 0;
+    if (!readDataBlock(x, y, z)) {
+        _x = 0;
+        _y = 0;
+        _z = 0;
+        return;
     }
 
-    // Step 4: Project the magnetic field back to the horizontal plane
-    // Adjust the x and y components using the Earth's inclination
-    float x_corrected = xMag * cos(inclination_radians) + zMag * sin(inclination_radians);
-    float y_corrected = yMag * cos(inclination_radians) + zMag * sin(inclination_radians);
-    
-    // Step 5: Calculate the compass direction (course) in radians
-    // Use atan2 to calculate the angle of the corrected vector
-    float radians = atan2(y_corrected, x_corrected);  // atan2(y, x) returns the angle in radians
-    
-    // Step 6: Convert the radians to degrees
-    float degrees = radians * 180.0 / M_PI;  // Convert radians to degrees
-    
-    // Step 7: Adjust the heading to make it clockwise and fit the 0-360 degree scale
-    degrees = 90 - degrees;
-    
-    // Normalize to 0-360 degrees
-    if (degrees < 0) {
-        degrees += 360;
+    _x = x;
+    _y = y;
+    _z = z;
+}
+
+int GY271::getCompassDirection()
+{
+    updateData();
+    float degrees = atan2f(static_cast<float>(_y), static_cast<float>(_x)) * 180.0f / static_cast<float>(M_PI);
+    if (degrees < 0.0f) {
+        degrees += 360.0f;
     }
-    
-    // Step 8: Return the course in tenths of degrees (as an integer)
-    int direction = (int)(degrees * 10);  // Multiply by 10 for tenths of degrees
-    
-    return direction;
+    return static_cast<int>(degrees * 10.0f);
 }
