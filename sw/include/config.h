@@ -28,6 +28,7 @@ public:
 
     motorType_t get_motorType(void);
     steerType_t get_steerType(void);
+    boolean get_motorReverse(void);
     boolean get_servoReverse(void);
     int get_steer_servo_min(void);
     int get_steer_servo_max(void);

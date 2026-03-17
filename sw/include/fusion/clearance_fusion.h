@@ -2,5 +2,6 @@
 #define CLEARANCE_FUSION_H
 
 int fusionComputeForwardClear();
+int fusionComputeTurnBias();
 
 #endif

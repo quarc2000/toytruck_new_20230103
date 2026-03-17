@@ -30,13 +30,25 @@ uint8_t forward_ch2_pin = 0;
 uint8_t reverse_ch2_pin = 0;
 
 Config conf;
+static bool motor_reverse = false;
 
 /*Motor::Motor(uint8_t ena, uint8_t frw, uint8_t rev) : ME(ena), MF(frw), MB(rev){
 }*/
 Motor::Motor()
 {
+  motorType = SINGLE;
+}
+
+void Motor::Begin()
+{
+  if (begun)
+  {
+    return;
+  }
+
   conf.Begin();
   motorType = conf.get_motorType();
+  motor_reverse = conf.get_motorReverse();
   switch (motorType)
   {
   case SINGLE:
@@ -96,10 +108,22 @@ Motor::Motor()
     // do not set-up
     break;
   }
+
+  begun = true;
 }
 
 void Motor::driving(int speed, int balance)
 {
+  if (!begun)
+  {
+    Begin();
+  }
+
+  if (motor_reverse)
+  {
+    speed = -speed;
+  }
+
   if (motorType == DIFFERENTIAL)
   {
     // drive both motors the same.

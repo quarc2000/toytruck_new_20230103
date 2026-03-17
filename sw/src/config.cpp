@@ -2,6 +2,7 @@
 
 motorType_t motorType;
 steerType_t steerType;
+boolean motorReverse = false;
 boolean servoReverse = false;
 int steer_servo_min = 51;
 int steer_servo_max = 102;
@@ -23,6 +24,7 @@ void Config::Begin(void)
         NAME = "PAT03";
         Serial.println("Configures PAT03");
         motorType = SINGLE;
+        motorReverse = false;
         steerType = SERVO;
         steer_servo_min = 60;
         steer_servo_max = 105;
@@ -32,6 +34,7 @@ void Config::Begin(void)
     case 0xCC328A0A8AB4: // PAT04  (6x4)
         Serial.println("COnfigure PAT04");
         motorType = DIFFERENTIAL;
+        motorReverse = true;
         steerType = SERVO;
         steer_servo_min = 60;
         steer_servo_max = 105;
@@ -43,6 +46,7 @@ void Config::Begin(void)
         NAME = "PÄR01";
         Serial.println("Configures PÄR01");
         motorType = SINGLE;
+        motorReverse = false;
         steerType = MOTOR;
         break;
 
@@ -51,12 +55,14 @@ void Config::Begin(void)
         NAME = "PÄR02";
         Serial.println("Configures PÄR02");
         motorType = SINGLE;
+        motorReverse = false;
         steerType = MOTOR;
         break;
 
     default:
         Serial.println("Unknown vehicle, default config");
         motorType = SINGLE;
+        motorReverse = false;
         steerType = MOTOR;
         break;
     }
@@ -68,6 +74,11 @@ motorType_t Config::get_motorType(void)
 steerType_t Config::get_steerType(void)
 {
     return steerType;
+}
+
+boolean Config::get_motorReverse(void)
+{
+    return motorReverse;
 }
 
 boolean Config::get_servoReverse(void)

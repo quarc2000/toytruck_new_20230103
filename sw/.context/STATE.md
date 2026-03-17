@@ -1,7 +1,43 @@
 # State
 
 ## Current Task Memory
-- Small active retuning step: GY271 service now applies temporary user-requested XY offsets before printing and heading calculation:
-  - `X += 400`
-  - `Y -= 150`
-- Next step: flash `env:gy271service` and let the user retest.
+- Active task: front-fusion extension plus simple obstacle-avoidance driver.
+- Current implementation:
+  - `src/sensors/front_vl53l0x_service.cpp` publishes:
+    - `rawLidarFrontRight`
+    - `rawLidarFrontLeft`
+    - aggregate `rawLidarFront`
+  - Active PAT004 mapping used in code:
+    - port `1` = right
+    - port `2` = left
+  - `src/fusion/clearance_fusion.cpp` now computes:
+    - `fuseForwardClear`
+    - `fuseTurnBias`
+  - `src/robots/driver.cpp` now owns a minimal reactive runtime:
+    - forward drive when clear
+    - slight steering bias toward the freer side
+    - short reverse recovery when blocked
+    - recovery direction prefers side ultrasonics and falls back to fused front bias
+  - dedicated runtime env:
+    - `env:frontavoid`
+    - `src/z_main_front_avoid.cpp`
+    - includes `LightService` for reverse light and steering indicators
+- Current fix in progress:
+  - explicit-init regression is fixed:
+    - `Motor` now initializes in `Begin()`
+    - `Steer::Begin()` now calls `Config::Begin()` itself
+  - first floor test issues have now been addressed in code:
+    - `frontavoid` now includes `ACCsensor` so forward drive can hold a heading from `calcHeading`
+    - fast fusion now ignores tiny bogus lidar values and uses blocked/clear hysteresis
+    - reverse recovery is longer and requires clear confirmation before returning to forward drive
+  - front lidar runtime is still noisy:
+    - startup can show tiny values like `20 mm`
+    - later many reads fall back to `0 mm`
+  - second floor test shows new behavior refinements are needed:
+    - forward drive still has a small rightward steering bias
+    - the truck can still nose into a front corner
+    - once it chooses a turn side, it can abandon that decision too early and oscillate back
+- Immediate next step:
+  - add adaptive steering trim learning from forward yaw drift
+  - latch the chosen turn side until some forward progress is made or blocking forces a new decision
+  - rebuild and upload `frontavoid` for another floor test

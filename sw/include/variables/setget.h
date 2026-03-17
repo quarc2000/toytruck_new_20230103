@@ -30,7 +30,9 @@ typedef enum {
     rawGyX,         // Stored raw-data form of gyro X, encoded as deg/s * 10.
     rawGyY,         // Stored raw-data form of gyro Y, encoded as deg/s * 10.
     rawGyZ,         // Stored raw-data form of gyro Z, encoded as deg/s * 10 before cleaning.
-    rawLidarFront,  // Reserved front lidar distance, intended to be mm when activated.
+    rawLidarFront,  // Front lidar minimum of the active left/right front VL53L0X readings in mm, or 0 if unknown.
+    rawLidarFrontRight, // Front-right VL53L0X distance in mm.
+    rawLidarFrontLeft,  // Front-left VL53L0X distance in mm.
     cleanedAccX,    // Filtered and centered forward accelerometer value in MPU6050 counts.
     cleanedAccY,    // Filtered and centered lateral accelerometer value in MPU6050 counts.
     cleanedAccZ,    // Filtered and centered vertical accelerometer value in MPU6050 counts.
@@ -49,6 +51,7 @@ typedef enum {
     mapObservedCellSizeMm,      // Observed-map cell size in mm per cell.
     mapProgrammedCellSizeMm,    // Programmed-map cell size in mm per cell.
     fuseForwardClear,           // Forward-clearance fusion state: -1 unknown, 0 blocked, 1 clear.
+    fuseTurnBias,               // Preferred front turn bias: -1 favor left, 0 neutral/unknown, 1 favor right.
     steerDirection,             // Steering command in the normalized range -100 to +100.
     //>>> Robot - DRIVER
     driver_driverActivity,      // Reserved driver-mode/activity code for the future Driver layer.

@@ -1,7 +1,21 @@
 # Task
 
 ## Active Task
-Apply the user-requested temporary XY bias correction in the GY-271 bench service output and heading calculation, then rebuild and flash `env:gy271service` for immediate retest.
+Extend front fusion and add a simple obstacle-avoidance driver.
 
 ## Note
-This is a small temporary retuning step on top of the deferred GY-271 work. The broader magnetometer task remains deferred in `BACKLOG.md`.
+Use the three front sensors to produce better immediate driving guidance.
+
+Definition of done:
+- keep the existing fused straight-ahead clear signal
+- add fused left/right preference indicating which slight turn has more free space ahead
+- implement a driver that uses the fused front signals to:
+  - drive forward when safe
+  - stop before obstacles
+  - back out in a smart direction when stuck
+- use the side ultrasonic sensors to improve the backing direction choice
+- include light behavior in the active avoidance runtime:
+  - reverse light when backing
+  - indicators for steering turns
+  - faster indicator flash rate than the previous slow setting
+- no target destination or route-planning logic in this task

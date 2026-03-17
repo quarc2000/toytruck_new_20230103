@@ -20,6 +20,14 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - `src/variables/setget.cpp` and `include/variables/setget.h` implement the shared information interface used for cross-task data exchange.
 - A first mapping subsystem now exists under `include/navigation` and `src/navigation`, and it is the active architecture area for navigation work.
 
+## Module Initialization Pattern
+- Hardware-facing packages should use explicit `Begin()` calls for real initialization rather than doing bus, pin, PWM, or config setup implicitly in constructors.
+- Constructors should stay cheap and side-effect-light wherever practical.
+- `Begin()` must be safe to call more than once; repeated calls should be harmless.
+- If a package method is called before `Begin()`, the package should defensively self-initialize rather than assuming startup order was perfect.
+- This pattern is preferred because startup order is easier to reason about, easier to debug on embedded targets, and less fragile than hidden constructor-side hardware setup.
+- The actuator layer should follow this pattern consistently, including `Motor` and `Steer`.
+
 ## Build Model
 - The project uses `build_src_filter` heavily to select one entry point per PlatformIO environment.
 - Several environments appear to be hardware bring-up or subsystem diagnostics: `usensor`, `motor`, `config`, `logger`, `steer`, `accsensor`, `accsensorkalman`, `compass`, `hwtest`, `light`, `gy271`, `i2cscan`, and `expander`.
@@ -84,12 +92,34 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - Helper files under the same package hold narrow rule logic without owning task lifecycle themselves.
 - The first live `fused*` implementation now exists:
   - `fuseForwardClear` is published by the fast fusion task in `src/fusion/fusion_service.cpp`
+  - `fuseTurnBias` is also now published by the same fast fusion task
   - `src/fusion/clearance_fusion.cpp` now provides helper logic only
-  - current rule is intentionally minimal and conservative:
-    - blocked if a known forward sensor reports too little clearance
-    - clear if at least one known forward sensor reports enough clearance and none report blocked
-    - unknown if no current forward sensor is trustworthy
+  - current rule set is intentionally minimal and conservative:
+    - `fuseForwardClear`
+      - blocked if the front ultrasonic or either front `VL53L0X` reports too little clearance
+      - clear only when the front ultrasonic and both front `VL53L0X` sensors are all known clear
+      - unknown otherwise
+    - `fuseTurnBias`
+      - left when the front-left `VL53L0X` is meaningfully longer than the front-right one
+      - right when the front-right `VL53L0X` is meaningfully longer than the front-left one
+      - neutral otherwise
 - This first step is deliberately limited to fast forward-clearance gating. The slow fusion task is present as a stub so future pose and map fusion can be added without changing package ownership again.
+- The current active PAT004 front sensor mapping used by the runtime is:
+  - IO-expander port `1` = front-right `VL53L0X`
+  - IO-expander port `2` = front-left `VL53L0X`
+
+## Reactive Driver Runtime
+- `src/robots/driver.cpp` now contains the first real driver-owned runtime behavior instead of remaining a pure stub.
+- The current driver behavior is intentionally minimal and non-navigational:
+  - drive forward when `fuseForwardClear` is clear
+  - bias steering slightly toward `fuseTurnBias` while moving forward
+  - stop when the forward path is not trusted
+  - if blocking persists, reverse briefly with steering biased toward the better side
+  - recovery direction now prefers the freer side ultrasonic (`rawDistLeft` or `rawDistRight`) and falls back to `fuseTurnBias` only when side context is weak
+  - use the rear ultrasonic only as a safety stop while reversing
+- This is not yet target-directed navigation. It is a local obstacle-avoidance behavior only.
+- The dedicated build env for this path is `env:frontavoid`, with `src/z_main_front_avoid.cpp` as the runtime entry point.
+- `env:frontavoid` now also includes `LightService`, so reverse-light and steering-indicator behavior stay active during the obstacle-avoidance runtime.
 
 ## Lighting Architecture
 - Vehicle lighting is now moving from scripted GPIO bring-up into a real service layer.
@@ -104,6 +134,7 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - `rawAccX` for first-pass brake detection from longitudinal deceleration
   - `steerDirection` for indicator flashing demand
   - `driver_desired_speed` for reverse-light demand
+- The current indicator cadence is `250 ms` per toggle, which gives a `2 Hz` blink cycle.
 - Main-light policy is intentionally left undecided for now and is kept off in the first automated light-service pass so brake, indicator, and reverse behavior remain easy to verify.
 
 ## Integration Status

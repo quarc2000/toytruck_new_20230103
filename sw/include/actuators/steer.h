@@ -16,6 +16,7 @@ private:
   Motor motor;
   motorType_t motorType;
   steerType_t steerType;
+  bool begun = false;
   boolean servoReverse = false;
   int steer_servo_min = 0;
   int steer_servo_max = 0;

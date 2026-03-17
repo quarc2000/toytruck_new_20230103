@@ -7,7 +7,7 @@ class Driver
 {
 
 private:
-    static void driverService(void);
+    static void driverTask(void *pvParameters);
 
 public:
     Driver();

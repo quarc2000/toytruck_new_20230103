@@ -25,11 +25,16 @@ Config conf2;
 
 Steer::Steer()
 {
-  Serial.begin(57600);
 }
 
 void Steer ::Begin()
 {
+  if (begun)
+  {
+    return;
+  }
+
+  conf2.Begin();
   globalVar_set(steerDirection, 0);
   steerType = conf2.get_steerType();
 
@@ -82,10 +87,17 @@ void Steer ::Begin()
     break;
   }
   }
+
+  begun = true;
 }
 
 void Steer::direction(int direction)
 {
+  if (!begun)
+  {
+    Begin();
+  }
+
   if (direction > 100)
     direction = 100;
   if (direction < -100)

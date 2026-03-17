@@ -96,7 +96,9 @@ This layer is now first-class for the active MPU6050 accel and gyro path.
 | 1030 | `rawGyX` | raw | Gyroscope X axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | The bus stores the nearest honest sensor-domain form as `deg/s * 10` using the MPU6050 default `131 LSB/dps` scale. Smoothing moves to `cleanedGyX`. |
 | 1031 | `rawGyY` | raw | Gyroscope Y axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | Smoothing moves to `cleanedGyY`. |
 | 1032 | `rawGyZ` | raw | Gyroscope Z axis in the bus's raw converted sensor-domain form | tenths of degrees per second | signed integer where `15` means `1.5 dps` | `src/sensors/accsensor.cpp`, `src/sensors/accsensorkalman.cpp` | Active | This is the uncleaned yaw-rate publication before startup-bias correction, smoothing, and deadband. Downstream yaw-rate users should prefer `cleanedGyZ`. |
-| 1040 | `rawLidarFront` | raw | Reserved front lidar distance | intended millimeters | signed integer millimeters | none found in current code | Reserved | Present for a future lidar path; no active producer today. |
+| 1040 | `rawLidarFront` | raw | Minimum known front-lidar distance from the active front-left and front-right `VL53L0X` pair | millimeters | signed integer millimeters | `src/sensors/front_vl53l0x_service.cpp` | Active | This is a conservative aggregate used to keep one forward-facing lidar distance available on the bus. If both side lidars are known, this value is the smaller of the two. If only one is known, it mirrors that one. |
+| 1041 | `rawLidarFrontRight` | raw | Front-right `VL53L0X` distance | millimeters | signed integer millimeters | `src/sensors/front_vl53l0x_service.cpp` | Active | On the active PAT004 truck model this uses IO-expander port `1`. |
+| 1042 | `rawLidarFrontLeft` | raw | Front-left `VL53L0X` distance | millimeters | signed integer millimeters | `src/sensors/front_vl53l0x_service.cpp` | Active | On the active PAT004 truck model this uses IO-expander port `2`. |
 
 ### Calculated Values
 
@@ -116,10 +118,11 @@ The first live `fused*` variable now exists in the enum and runtime.
 
 | ID | Name | Meaning | Intended Unit / Scale | Intended Producer | Status | Notes |
 |---|---|---|---|---|---|---|
-| 4001 | `fuseForwardClear` | Decision-ready forward-movement clearance state | integer state: `-1` unknown, `0` blocked, `1` clear | `src/fusion/clearance_fusion.cpp` | Active | Current minimal rule uses `rawDistFront` and `rawLidarFront` only. A known blocked reading wins; any known clear reading wins if none are blocked; otherwise the result is unknown. |
-| 4002 | `fuseReverseClear` | Decision-ready reverse clearance state | boolean-like integer | future fusion task | Proposed | Same structure as `fuseForwardClear`, but for the rear path. |
-| 4003 | `fuseLeftClear` | Decision-ready left-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
-| 4004 | `fuseRightClear` | Decision-ready right-side clearance state | boolean-like integer | future fusion task | Proposed | Useful for path and turn feasibility. |
+| 4001 | `fuseForwardClear` | Decision-ready forward-movement clearance state | integer state: `-1` unknown, `0` blocked, `1` clear | `src/fusion/clearance_fusion.cpp` via `src/fusion/fusion_service.cpp` | Active | Current rule uses front ultrasonic plus both front `VL53L0X` sensors. A known blocked reading on any of the three front sensors wins. Forward is only considered clear when the front ultrasonic and both front lidars are all known clear. |
+| 4002 | `fuseTurnBias` | Decision-ready preference for which slight front turn has more free space | integer state: `-1` favor left, `0` neutral or unknown, `1` favor right | `src/fusion/clearance_fusion.cpp` via `src/fusion/fusion_service.cpp` | Active | Current rule compares the two front `VL53L0X` distances and only declares a bias when one side is meaningfully longer than the other. |
+| 4003 | `fuseReverseClear` | Decision-ready reverse clearance state | boolean-like integer | future fusion task | Proposed | Same structure as `fuseForwardClear`, but for the rear path. |
+| 4004 | `fuseLeftClear` | Decision-ready left-side clearance state | boolean-like integer | future fusion task | Proposed | Useful if the project later needs explicit per-side fused states in addition to `fuseTurnBias`. |
+| 4005 | `fuseRightClear` | Decision-ready right-side clearance state | boolean-like integer | future fusion task | Proposed | Useful if the project later needs explicit per-side fused states in addition to `fuseTurnBias`. |
 | 4010 | `fuseHeadingDeg10` | Best current heading estimate after combining gyro, map alignment, and later other sensors | tenths of degrees | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcHeading`. |
 | 4011 | `fuseSpeedMmPs` | Best current speed estimate | millimeters per second | future fusion task | Proposed | This is a likely eventual replacement for the current ambiguous `calcSpeed`. |
 | 4012 | `fusePosePacked` | Compact fused pose in grid space | same packed-byte layout as `map*PosePacked` | future fusion task | Proposed | Useful if observed and programmed map pose should be complemented by a best fused pose. |
@@ -138,10 +141,10 @@ The first live `fused*` variable now exists in the enum and runtime.
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 8001 | `steerDirection` | actuator | Requested steering direction normalized for the steering subsystem | integer percent-like scale from `-100` to `100` | signed integer | `src/actuators/steer.cpp` | Active | This is the currently commanded steering target, not a measured wheel angle. |
-| 8100 | `driver_driverActivity` | driver | High-level driver mode or command category | intended small enum integer | signed integer | no active producer in current code | Deferred | `driver.cpp` currently uses file-local state instead of the shared variable. |
+| 8100 | `driver_driverActivity` | driver | High-level driver mode or command category | small runtime enum integer | signed integer | `src/robots/driver.cpp` | Active, Uncertain | Current obstacle-avoidance runtime uses this for internal states such as forward drive and recovery phases. The code is now active, but the numeric mode table is not yet formalized as a stable external contract. |
 | 8101 | `driver_desired_direction` | driver | Requested absolute direction for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
-| 8102 | `driver_desired_turn` | driver | Requested relative turn for the driver abstraction | intended degrees or `deg10`, not yet formalized | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
-| 8103 | `driver_desired_speed` | driver | Requested longitudinal travel speed command | normalized signed command today, likely physical speed later | signed integer | `src/z_main_hw-test.cpp` in the current light-task integration path | Active, Uncertain | Currently used as a signed desired-speed hint for reverse-light behavior. Positive means forward command, negative means reverse command, and the present scale is still the normalized `-100` to `100` actuator command rather than a formal physical unit. |
+| 8102 | `driver_desired_turn` | driver | Requested steering-turn command for the current driver runtime | normalized signed steering command | signed integer in the current `-100` to `100` steering scale | `src/robots/driver.cpp` | Active, Uncertain | In the current obstacle-avoidance runtime this mirrors the live steering command chosen from the fused turn bias and recovery behavior. |
+| 8103 | `driver_desired_speed` | driver | Requested longitudinal travel speed command | normalized signed command today, likely physical speed later | signed integer | `src/robots/driver.cpp`; older bench use also exists in `src/z_main_hw-test.cpp` | Active, Uncertain | Positive means forward command, negative means reverse command, and the present scale is still the normalized `-100` to `100` actuator command rather than a formal physical unit. |
 | 8104 | `driver_desired_distance` | driver | Requested travel distance | intended millimeters | signed integer | no active producer in current code | Deferred | Existing `driver.cpp` keeps this in file-local state only. |
 
 ## Current Semantic Gaps To Fix Later
@@ -216,14 +219,14 @@ Current implementation status:
 - `fusion_service`
   Implemented and owns both task cadences.
 - `clearance_fusion`
-  Implemented as helper logic for `fuseForwardClear` only.
+  Implemented as helper logic for `fuseForwardClear` and `fuseTurnBias`.
 - slow fusion logic
   Task exists as a stub so the architecture and runtime cadence are already in place before heavier fusion rules are added.
 
 Current task split:
 
 - fast fusion task, `100 ms`
-  Updates `fuseForwardClear` and is the home for later near-term clearance gating.
+  Updates `fuseForwardClear` and `fuseTurnBias`, and is the home for later near-term clearance gating.
 - slow fusion task, `1000 ms`
   Exists as the home for later pose and map fusion without changing package ownership again.
 

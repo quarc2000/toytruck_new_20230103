@@ -11,6 +11,7 @@ class Motor
 {
 private:
   motorType_t motorType;
+  bool begun = false;
   /*
   const uint8_t ME;  
   const uint8_t MF;
@@ -20,6 +21,7 @@ private:
 
 public:
   Motor();  // declare default constructor with controlpin input
+  void Begin();
 
 
 

@@ -11,7 +11,7 @@ constexpr uint8_t REVERSE_LIGHT_PIN = 11;
 
 constexpr long INDICATOR_STEER_THRESHOLD = 10;
 constexpr long BRAKE_DECEL_THRESHOLD_COUNTS = -120;
-constexpr unsigned long INDICATOR_BLINK_PERIOD_MS = 500;
+constexpr unsigned long INDICATOR_BLINK_PERIOD_MS = 250;
 constexpr TickType_t LIGHT_TASK_PERIOD_TICKS = pdMS_TO_TICKS(50);
 } // namespace
 
