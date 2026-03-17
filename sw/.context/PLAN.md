@@ -1,72 +1,11 @@
 # Plan
 
 ## Steps Completed
-- Reviewed the current fusion and driver baseline.
-- Confirmed `fuseForwardClear` exists and is driven by the fast fusion task.
-- Confirmed `Driver` is still mostly a stub and does not yet own any real runtime behavior.
-- Verified the active PAT004 model note and found that front `VL53L0X` mapping must follow:
-  - port `1` = front right
-  - port `2` = front left
-- Confirmed there is no runtime service yet publishing both front `VL53L0X` distances into shared variables.
-- Confirmed `hwtest` is the wrong integration point for this task because it directly scripts motor and steering motion in its loop.
-- Added the minimum new shared variables:
-  - `rawLidarFrontRight`
-  - `rawLidarFrontLeft`
-  - `fuseTurnBias`
-- Added a dedicated front-`VL53L0X` service for PAT004 on expander ports `1` and `2`.
-- Extended the fast fusion path so it now publishes:
-  - conservative `fuseForwardClear`
-  - signed `fuseTurnBias`
-- Implemented the first real driver runtime behavior:
-  - forward drive when front path is clear
-  - slight steering bias toward the better side
-  - stop and short reverse recovery when blocked
-- Added a dedicated runtime env:
-  - `env:frontavoid`
-  - entry point `src/z_main_front_avoid.cpp`
-- Built `env:frontavoid` successfully with the local PlatformIO cache workflow.
-- Extended the reverse recovery choice so it now uses `rawDistLeft` and `rawDistRight` before falling back to `fuseTurnBias`.
-- Added `LightService` into `env:frontavoid` so reverse light and steering indicators are active in the avoidance runtime.
-- Increased indicator blink cadence from the previous slow setting to a `250 ms` toggle (`2 Hz` blink cycle).
-- Restored the actuator layer toward the project's explicit `Begin()` pattern:
-  - `Motor` now initializes in `Begin()` instead of its constructor
-  - repeated `Begin()` calls are harmless
-  - `Motor::driving()` self-initializes if needed
-  - `Steer::Begin()` now calls `Config::Begin()` explicitly and `direction()` self-initializes if needed
-- Rebuilt `env:frontavoid` successfully after the explicit-init refactor.
-- Confirmed on hardware that PAT004 identification now prints explicitly through the corrected init path.
-- Extended `env:frontavoid` with the minimum MPU6050 path needed for forward heading hold.
-- Added front-clear hysteresis and ignored obviously bogus tiny lidar distances in the fast fusion path.
-- Lengthened and stabilized reverse recovery behavior in the driver runtime.
-- Rebuilt `env:frontavoid` successfully after the heading-hold and hysteresis changes.
-- Added adaptive forward steering trim learning, side-wall centering from the left/right ultrasonic pair, a longer turn-commit reset distance, and a one-second brake-light minimum hold.
-- Rebuilt `env:frontavoid` successfully after the latest driver and light-service refinements.
-- Hardened the front `VL53L0X` service so recent good values are held briefly across transient read failures instead of collapsing immediately to `0 mm`.
-- Changed turn commitment to a time-based hold and added minimum forward/reverse motion pulses in the driver runtime.
-- Rebuilt `env:frontavoid` successfully after the lidar-hold and motion-latch changes.
-- Found the real front-lidar failure cause: mux ownership was not atomic across the full `setChannel -> sensor transaction -> restore channel` sequence, so `LightService` could switch the TCA9548 back to channel `0` between `VL53L0X` sub-transactions.
-- Fixed that by adding recursive task-safe I2C lock or unlock support and wrapping the full front-lidar mux transaction atomically. Removed the temporary stale-value hold again so failed reads go back to unknown instead of pretending to be fresh data.
-- Rebuilt `env:frontavoid` successfully after the atomic mux fix.
-- Normalized invalid front lidar values both low and high to the same capped far value (`2999 mm`), so bogus returns like `20 mm` and `8190 mm` no longer look like real obstacle distances.
-- Moved the straight-driving learning into hidden steering neutral trim so a caller command of `0` stays logically `0` while the servo neutral is adjusted underneath.
-- Rebuilt and uploaded `env:frontavoid` successfully after the steering-neutral and lidar-cap changes.
+- Closed the front-fusion and simple obstacle-avoidance driver task.
+- Moved remaining runtime-tuning ideas to `BACKLOG.md`.
 
 ## In Progress
-- Align `frontavoid` behavior with the clarified sensor contract:
-  - all forward sensors decide whether forward motion is allowed
-  - the two forward `VL53L0X` decide the preferred forward steering direction
-  - the side ultrasonics decide left vs right only for reverse recovery
-  - reverse-direction commitment should persist until backing becomes impossible or forward travel has been re-established
+- No active task.
 
 ## Steps Remaining
-- Upload the latest rebuilt `env:frontavoid` once `COM7` is free.
-- Validate on hardware that:
-  - near hits on either forward `VL53L0X` now block forward motion instead of being treated as unknown
-  - reverse-turn commitment no longer flips during the pause phase
-  - the truck still uses the front `VL53L0X` pair only for forward preference and the side ultrasonics only for reverse-direction choice
-  - the front stop point is now close to `150 mm` instead of backing off around `300 mm`
-  - the main lights turn on automatically whenever forward motion is commanded and turn off otherwise
-  - inside `30 cm`, forward speed drops to `70`
-  - every new forward or reverse phase gets a hidden `100 ms` full-power launch pulse
-  - small left/right sensor noise no longer produces a constant tiny steering bias
-  - launch assist extends the full-power kick briefly if acceleration still indicates no real movement
+- Wait for the next task.
