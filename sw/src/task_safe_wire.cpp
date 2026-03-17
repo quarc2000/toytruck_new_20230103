@@ -26,15 +26,25 @@ static void task_safe_wire_ensure_mutex()
     portENTER_CRITICAL(&task_safe_wire_setup_mux);
     if (task_safe_wire_state.mutex == NULL)
     {
-        task_safe_wire_state.mutex = xSemaphoreCreateMutex();
+        task_safe_wire_state.mutex = xSemaphoreCreateRecursiveMutex();
     }
     portEXIT_CRITICAL(&task_safe_wire_setup_mux);
 }
 
-void task_safe_wire_begin(uint8_t address)
+void task_safe_wire_lock()
 {
     task_safe_wire_ensure_mutex();
-    xSemaphoreTake(task_safe_wire_state.mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(task_safe_wire_state.mutex, portMAX_DELAY);
+}
+
+void task_safe_wire_unlock()
+{
+    xSemaphoreGiveRecursive(task_safe_wire_state.mutex);
+}
+
+void task_safe_wire_begin(uint8_t address)
+{
+    task_safe_wire_lock();
     if (!task_safe_wire_state.initialized)
     {
         Wire.begin();
@@ -84,6 +94,6 @@ uint8_t task_safe_wire_end()
 
     task_safe_wire_state.session_active = false;
     task_safe_wire_state.write_started = false;
-    xSemaphoreGive(task_safe_wire_state.mutex);
+    task_safe_wire_unlock();
     return result;
 }

@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 
 #include "expander.h"
+#include "task_safe_wire.h"
 #include "sensors/vl53l0x_basic.h"
 #include "variables/setget.h"
 
@@ -17,6 +18,9 @@ constexpr uint8_t FRONT_RIGHT_CHANNEL = 1;
 constexpr uint8_t FRONT_LEFT_CHANNEL = 2;
 constexpr TickType_t FRONT_LIDAR_PERIOD_MS = 100;
 constexpr TickType_t INIT_RETRY_MS = 1000;
+constexpr int32_t LIDAR_NO_RETURN_MM = 2999;
+constexpr int32_t LIDAR_MIN_PLAUSIBLE_MM = 40;
+constexpr int32_t LIDAR_MAX_PLAUSIBLE_MM = 2999;
 
 EXPANDER front_lidar_expander(TCA9548_ADDR, MCP23017_ADDR);
 Vl53l0xBasic front_right_sensor(VL53L0X_ADDR);
@@ -25,19 +29,38 @@ bool front_right_ready = false;
 bool front_left_ready = false;
 bool front_lidar_task_started = false;
 
+int32_t sanitizeDistanceMm(uint16_t distance_mm)
+{
+    if (distance_mm < LIDAR_MIN_PLAUSIBLE_MM)
+    {
+        return LIDAR_NO_RETURN_MM;
+    }
+
+    if (distance_mm > LIDAR_MAX_PLAUSIBLE_MM)
+    {
+        return LIDAR_NO_RETURN_MM;
+    }
+
+    return distance_mm;
+}
+
 bool initSensor(uint8_t channel, Vl53l0xBasic &sensor)
 {
+    task_safe_wire_lock();
     front_lidar_expander.setChannel(channel);
     const bool ok = sensor.probe() && sensor.init();
     front_lidar_expander.setChannel(0);
+    task_safe_wire_unlock();
     return ok;
 }
 
 bool readSensor(uint8_t channel, Vl53l0xBasic &sensor, uint16_t &distance_mm)
 {
+    task_safe_wire_lock();
     front_lidar_expander.setChannel(channel);
     const bool ok = sensor.readDistanceMm(distance_mm);
     front_lidar_expander.setChannel(0);
+    task_safe_wire_unlock();
     return ok;
 }
 
@@ -94,7 +117,7 @@ void frontLidarTask(void *pvParameters)
             uint16_t distance_mm = 0;
             if (readSensor(FRONT_RIGHT_CHANNEL, front_right_sensor, distance_mm))
             {
-                right_mm = distance_mm;
+                right_mm = sanitizeDistanceMm(distance_mm);
             }
             else
             {
@@ -107,7 +130,7 @@ void frontLidarTask(void *pvParameters)
             uint16_t distance_mm = 0;
             if (readSensor(FRONT_LEFT_CHANNEL, front_left_sensor, distance_mm))
             {
-                left_mm = distance_mm;
+                left_mm = sanitizeDistanceMm(distance_mm);
             }
             else
             {

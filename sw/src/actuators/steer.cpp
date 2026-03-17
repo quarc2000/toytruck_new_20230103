@@ -20,6 +20,7 @@ const int SERVO_pwmFreq = 50;       // Frequency for servo control (50Hz)
 const int SERVO_pwmResolution = 10; // 8-bit resolution (0-255 range)
 const int SERVO_pwmChannel = 2;     // PWM channel, motor control is ch 0 (and ch 1 if differential)
 const int SERVO_MAX_PWM = pow(2, SERVO_pwmResolution) - 1;
+const int STEER_NEUTRAL_TRIM_LIMIT = 20;
 
 Config conf2;
 
@@ -110,7 +111,7 @@ void Steer::direction(int direction)
 
   case SERVO:
   {
-    int dutyCycle = map(direction, -100, 100, steer_servo_min, steer_servo_max) + steer_servo_adjust; // Duty cycle range for 1ms to 2ms
+    int dutyCycle = map(direction + steer_neutral_trim, -100, 100, steer_servo_min, steer_servo_max) + steer_servo_adjust; // Duty cycle range for 1ms to 2ms
     ledcWrite(SERVO_pwmChannel, dutyCycle);
     break;
   }
@@ -168,6 +169,24 @@ void Steer::direction(int direction)
     assert(false);
     break;
   }
+  }
+}
+
+void Steer::nudgeNeutralTrim(int delta)
+{
+  if (!begun)
+  {
+    Begin();
+  }
+
+  steer_neutral_trim += delta;
+  if (steer_neutral_trim > STEER_NEUTRAL_TRIM_LIMIT)
+  {
+    steer_neutral_trim = STEER_NEUTRAL_TRIM_LIMIT;
+  }
+  if (steer_neutral_trim < -STEER_NEUTRAL_TRIM_LIMIT)
+  {
+    steer_neutral_trim = -STEER_NEUTRAL_TRIM_LIMIT;
   }
 }
 

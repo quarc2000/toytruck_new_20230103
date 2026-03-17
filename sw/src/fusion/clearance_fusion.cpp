@@ -5,13 +5,14 @@
 static constexpr int32_t FUSE_FORWARD_UNKNOWN = -1;
 static constexpr int32_t FUSE_FORWARD_BLOCKED = 0;
 static constexpr int32_t FUSE_FORWARD_CLEAR = 1;
-static constexpr int32_t FORWARD_BLOCKED_MM_THRESHOLD = 300;
-static constexpr int32_t FORWARD_CLEAR_MM_THRESHOLD = 420;
-static constexpr int32_t LIDAR_MIN_VALID_MM = 60;
+static constexpr int32_t FORWARD_BLOCKED_MM_THRESHOLD = 150;
+static constexpr int32_t FORWARD_CLEAR_MM_THRESHOLD = 250;
+static constexpr int32_t LIDAR_MIN_VALID_MM = 40;
 static constexpr int32_t FUSE_TURN_LEFT = -1;
 static constexpr int32_t FUSE_TURN_NEUTRAL = 0;
 static constexpr int32_t FUSE_TURN_RIGHT = 1;
-static constexpr int32_t TURN_BIAS_DELTA_MM = 80;
+static constexpr int32_t TURN_BIAS_ENGAGE_DELTA_MM = 220;
+static constexpr int32_t TURN_BIAS_RELEASE_DELTA_MM = 100;
 
 static int32_t ultrasonicFrontState(int32_t raw_dist_front_cm)
 {
@@ -74,6 +75,48 @@ static int32_t lidarFrontState(int32_t raw_lidar_front_mm)
     return lidarForwardBiasState(raw_lidar_front_mm);
 }
 
+static int32_t turnBiasHysteresis(int32_t distance_delta_mm)
+{
+    static int32_t last_turn_bias = FUSE_TURN_NEUTRAL;
+
+    if (last_turn_bias == FUSE_TURN_RIGHT)
+    {
+        if (distance_delta_mm < -TURN_BIAS_ENGAGE_DELTA_MM)
+        {
+            last_turn_bias = FUSE_TURN_LEFT;
+        }
+        else if (distance_delta_mm <= TURN_BIAS_RELEASE_DELTA_MM)
+        {
+            last_turn_bias = FUSE_TURN_NEUTRAL;
+        }
+        return last_turn_bias;
+    }
+
+    if (last_turn_bias == FUSE_TURN_LEFT)
+    {
+        if (distance_delta_mm > TURN_BIAS_ENGAGE_DELTA_MM)
+        {
+            last_turn_bias = FUSE_TURN_RIGHT;
+        }
+        else if (distance_delta_mm >= -TURN_BIAS_RELEASE_DELTA_MM)
+        {
+            last_turn_bias = FUSE_TURN_NEUTRAL;
+        }
+        return last_turn_bias;
+    }
+
+    if (distance_delta_mm > TURN_BIAS_ENGAGE_DELTA_MM)
+    {
+        last_turn_bias = FUSE_TURN_RIGHT;
+    }
+    else if (distance_delta_mm < -TURN_BIAS_ENGAGE_DELTA_MM)
+    {
+        last_turn_bias = FUSE_TURN_LEFT;
+    }
+
+    return last_turn_bias;
+}
+
 int fusionComputeForwardClear()
 {
     const int32_t usensor_state = ultrasonicFrontState(globalVar_get(rawDistFront));
@@ -87,8 +130,8 @@ int fusionComputeForwardClear()
         return forwardClearHysteresis(FUSE_FORWARD_BLOCKED);
     }
 
-    if (usensor_state == FUSE_FORWARD_CLEAR ||
-        lidar_right_state == FUSE_FORWARD_CLEAR ||
+    if (usensor_state == FUSE_FORWARD_CLEAR &&
+        lidar_right_state == FUSE_FORWARD_CLEAR &&
         lidar_left_state == FUSE_FORWARD_CLEAR)
     {
         return forwardClearHysteresis(FUSE_FORWARD_CLEAR);
@@ -109,15 +152,5 @@ int fusionComputeTurnBias()
     }
 
     const int32_t distance_delta_mm = lidar_right_mm - lidar_left_mm;
-    if (distance_delta_mm > TURN_BIAS_DELTA_MM)
-    {
-        return FUSE_TURN_RIGHT;
-    }
-
-    if (distance_delta_mm < -TURN_BIAS_DELTA_MM)
-    {
-        return FUSE_TURN_LEFT;
-    }
-
-    return FUSE_TURN_NEUTRAL;
+    return turnBiasHysteresis(distance_delta_mm);
 }

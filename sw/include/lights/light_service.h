@@ -12,11 +12,13 @@ public:
 private:
     static void taskEntry(void *parameter);
     void runTask();
-    void applyOutputs(bool brakeOn, bool leftOn, bool rightOn, bool reverseOn);
+    void applyOutputs(bool mainOn, bool brakeOn, bool leftOn, bool rightOn, bool reverseOn);
 
     EXPANDER expander;
+    bool begun;
     bool blinkState;
     unsigned long lastBlinkToggleMs;
+    unsigned long brakeHoldUntilMs;
 };
 
 #endif

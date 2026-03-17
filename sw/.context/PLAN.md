@@ -39,12 +39,34 @@
 - Added front-clear hysteresis and ignored obviously bogus tiny lidar distances in the fast fusion path.
 - Lengthened and stabilized reverse recovery behavior in the driver runtime.
 - Rebuilt `env:frontavoid` successfully after the heading-hold and hysteresis changes.
+- Added adaptive forward steering trim learning, side-wall centering from the left/right ultrasonic pair, a longer turn-commit reset distance, and a one-second brake-light minimum hold.
+- Rebuilt `env:frontavoid` successfully after the latest driver and light-service refinements.
+- Hardened the front `VL53L0X` service so recent good values are held briefly across transient read failures instead of collapsing immediately to `0 mm`.
+- Changed turn commitment to a time-based hold and added minimum forward/reverse motion pulses in the driver runtime.
+- Rebuilt `env:frontavoid` successfully after the lidar-hold and motion-latch changes.
+- Found the real front-lidar failure cause: mux ownership was not atomic across the full `setChannel -> sensor transaction -> restore channel` sequence, so `LightService` could switch the TCA9548 back to channel `0` between `VL53L0X` sub-transactions.
+- Fixed that by adding recursive task-safe I2C lock or unlock support and wrapping the full front-lidar mux transaction atomically. Removed the temporary stale-value hold again so failed reads go back to unknown instead of pretending to be fresh data.
+- Rebuilt `env:frontavoid` successfully after the atomic mux fix.
+- Normalized invalid front lidar values both low and high to the same capped far value (`2999 mm`), so bogus returns like `20 mm` and `8190 mm` no longer look like real obstacle distances.
+- Moved the straight-driving learning into hidden steering neutral trim so a caller command of `0` stays logically `0` while the servo neutral is adjusted underneath.
+- Rebuilt and uploaded `env:frontavoid` successfully after the steering-neutral and lidar-cap changes.
 
 ## In Progress
-- Refine `frontavoid` after the second floor test:
-  - add adaptive straight-driving trim so steering neutral can learn from yaw drift
-  - make turn choice sticky so a chosen side is kept until the truck has made real forward progress or becomes blocked again
-  - reduce the chance of still hitting front corners by tightening the forward-clear behavior further if needed
+- Align `frontavoid` behavior with the clarified sensor contract:
+  - all forward sensors decide whether forward motion is allowed
+  - the two forward `VL53L0X` decide the preferred forward steering direction
+  - the side ultrasonics decide left vs right only for reverse recovery
+  - reverse-direction commitment should persist until backing becomes impossible or forward travel has been re-established
 
 ## Steps Remaining
-- Rebuild `env:frontavoid` and upload it for the next floor test.
+- Upload the latest rebuilt `env:frontavoid` once `COM7` is free.
+- Validate on hardware that:
+  - near hits on either forward `VL53L0X` now block forward motion instead of being treated as unknown
+  - reverse-turn commitment no longer flips during the pause phase
+  - the truck still uses the front `VL53L0X` pair only for forward preference and the side ultrasonics only for reverse-direction choice
+  - the front stop point is now close to `150 mm` instead of backing off around `300 mm`
+  - the main lights turn on automatically whenever forward motion is commanded and turn off otherwise
+  - inside `30 cm`, forward speed drops to `70`
+  - every new forward or reverse phase gets a hidden `100 ms` full-power launch pulse
+  - small left/right sensor noise no longer produces a constant tiny steering bias
+  - launch assist extends the full-power kick briefly if acceleration still indicates no real movement

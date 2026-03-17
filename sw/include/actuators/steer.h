@@ -11,6 +11,7 @@ public:
   Steer(); // declare default constructor with controlpin input
   void Begin();
   void direction(int direction);
+  void nudgeNeutralTrim(int delta);
 
 private:
   Motor motor;
@@ -21,6 +22,7 @@ private:
   int steer_servo_min = 0;
   int steer_servo_max = 0;
   int steer_servo_adjust = 0;
+  int steer_neutral_trim = 0;
 
 public:
   void Right();

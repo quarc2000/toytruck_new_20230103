@@ -4,6 +4,8 @@
 #include <Arduino.h>
 
 void task_safe_wire_begin(uint8_t address);
+void task_safe_wire_lock();
+void task_safe_wire_unlock();
 size_t task_safe_wire_write(uint8_t value);
 void task_safe_wire_restart();
 uint8_t task_safe_wire_request_from(uint8_t address, uint8_t quantity);

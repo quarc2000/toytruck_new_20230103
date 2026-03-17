@@ -30,14 +30,33 @@
     - `frontavoid` now includes `ACCsensor` so forward drive can hold a heading from `calcHeading`
     - fast fusion now ignores tiny bogus lidar values and uses blocked/clear hysteresis
     - reverse recovery is longer and requires clear confirmation before returning to forward drive
-  - front lidar runtime is still noisy:
-    - startup can show tiny values like `20 mm`
-    - later many reads fall back to `0 mm`
-  - second floor test shows new behavior refinements are needed:
-    - forward drive still has a small rightward steering bias
-    - the truck can still nose into a front corner
-    - once it chooses a turn side, it can abandon that decision too early and oscillate back
+    - forward drive now learns a small steering trim from yaw drift
+    - forward drive now recenters between side walls when both side ultrasonics are usable
+    - brake light now has a one-second minimum on-time to avoid flicker
+    - turn commitment now uses a time hold instead of unreliable distance progress
+    - driver now enforces minimum forward and reverse motion pulses
+  - actual front lidar bug is now understood and fixed:
+    - the front lidar task was running
+    - repeated `VL53L0X` reads were being broken because the mux channel selection was not atomic across the full sensor transaction
+    - `LightService` could legally switch the TCA9548 back to channel `0` between lidar sub-transactions
+    - the front lidar service now locks the whole `setChannel -> sensor operation -> restore channel` sequence
+    - temporary stale-value hold was removed again; failed reads now go back to unknown
+    - invalid front lidar values are now normalized to one capped far value (`2999 mm`) for both low bogus returns and oversized raw codes
+  - steering semantics are now closer to the intended contract:
+    - caller command `0` stays logically `0`
+    - slow straight-driving learning is applied as hidden steering neutral trim inside the steering layer
 - Immediate next step:
-  - add adaptive steering trim learning from forward yaw drift
-  - latch the chosen turn side until some forward progress is made or blocking forces a new decision
-  - rebuild and upload `frontavoid` for another floor test
+  - upload the latest rebuilt `frontavoid` once `COM7` is free:
+    - forward block threshold is now `150 mm` with `250 mm` clear hysteresis
+    - `LightService` now turns the main lights on automatically whenever `driver_desired_speed > 0`
+    - driver now slows forward motion to `70` inside `30 cm`
+    - every new forward or reverse phase now gets a hidden `100 ms` full-power launch pulse
+    - side-centering now has an `8 cm` deadband to avoid tiny constant steering offsets
+    - forward turn-bias now requires a larger front-lidar difference before it steers left or right
+    - hidden steering-trim learning now only nudges when heading error is persistent
+    - launch assist now keeps full power briefly longer if `cleanedAccX` still suggests the truck has not actually started moving
+  - hardware-validate the latest `frontavoid` update:
+    - any valid near hit from either forward `VL53L0X` should now block forward motion
+    - reverse-turn commitment should now stay fixed through recover-pause and only change if backing fails
+    - front `VL53L0X` still provide forward preference only; side ultrasonics are now the only reverse-direction chooser
+  - provide the requested illustration prompt after the runtime behavior is confirmed
