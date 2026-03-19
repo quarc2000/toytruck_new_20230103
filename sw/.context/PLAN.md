@@ -57,9 +57,10 @@
   - uploaded successfully to `COM7`
 
 ## In Progress
-- Restore compatibility of `env:exploremap` with trucks that have no IO expander and no front `VL53L0X` pair:
-  - make expander-dependent services degrade cleanly when the hardware is absent
-  - make forward-clear fusion fall back sensibly when the front lidar pair is not installed
+- Tune `env:exploremap` corner escape and steering authority from the latest truck test:
+  - explain and document the steering endpoint units so PAT steering calibration is readable
+  - keep one recovery-turn decision sticky across repeated block-recover cycles instead of re-deciding too easily from noisy side readings
+  - latest consistency pass built and uploaded to `COM7`; waiting for floor retest
 
 ## Steps Remaining
 - upload to the truck and validate:
@@ -68,6 +69,10 @@
   - emergency response before side distance drops below `5 cm`
   - open-space forward motion with no nearby side walls
   - front-wall approach angle correction in the `8 x 8 m` area
+  - corner escape persistence, including visible reverse steering and continued turn commitment into the next forward motion
+- restore compatibility of `env:exploremap` with trucks that have no IO expander and no front `VL53L0X` pair:
+  - make expander-dependent services degrade cleanly when the hardware is absent
+  - make forward-clear fusion fall back sensibly when the front lidar pair is not installed
 - decide whether the next API increment after remote control should add:
   - a dedicated control-status endpoint
   - explicit command source reporting in more responses

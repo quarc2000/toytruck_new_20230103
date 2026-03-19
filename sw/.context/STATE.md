@@ -2,30 +2,26 @@
 
 ## Current Task Memory
 - Active subtask: tune live `env:exploremap` behavior from truck test feedback.
-- Implemented in code:
-  - forward heading correction is now actually applied into the steering command
-  - added immediate yaw damping from `cleanedGyZ`
-  - forward heading target now refreshes at real forward-motion start
-  - side-wall correction now tries to hold about `10 cm` stand-off and reacts strongly by `5 cm`
-  - forward-clear fusion now accepts open space when both front lidars are clearly open and the front ultrasonic is only unknown
-- Latest tuning increment:
-  - stronger heading and yaw correction for faster straightening
-  - front-wall angle estimated from the PAT004 front lidar pair using `105 mm` spacing
-  - extra steering correction now stays active when approaching a wall at an angle
-- New live feedback:
-  - long straight runs still correct too slowly for small heading errors
-  - after backing with a turn, the forward phase does not preserve enough turn commitment near the wall
-- Latest fix now in code:
-  - stronger small-error heading response
-  - `committedForwardBias` now follows the actual recovery direction
-  - forward steering now uses that committed bias and can go much steeper near a close wall
-- Local verification complete:
-  - `pio run -e exploremap -j1` succeeded after the committed-turn pass
-- Uploaded successfully to `COM7`.
-- Newly identified compatibility gap:
-  - current `env:exploremap` is not safe to assume on trucks without the IO expander and front `VL53L0X` sensors
-  - expander-dependent services start unconditionally
-  - current forward-clear fusion assumes the front lidar pair exists
+- Latest confirmed truck behavior:
+  - reverse and forward steering sign semantics are much better
+  - corner escape still fails because the truck loses turn intent too easily and sometimes does not show enough reverse steering authority
+- Current hypothesis:
+  - steering endpoint units needed to be clarified because the current config values are PWM controller units, not physical angles
+  - repeated block events were still able to re-decide the recovery side too easily from noisy side readings
+- Current work:
+  - keep one recovery-turn decision sticky across repeated block-recover cycles
+  - document PAT004 steering endpoint calibration in readable units
+- Latest code change now in tree:
+  - PAT003 and PAT004 servo range widened from `60..105` to `55..110`
+  - PAT004 truck-model note now documents those steering endpoint values explicitly as `50 Hz`, `10-bit` LEDC duty counts
+  - committed reverse and close-front forward turns now use full steering authority
+  - committed forward turns near a close wall now enforce a minimum turn so heading-hold and wall terms cannot cancel them back toward straight
+  - `ExplorerRecoverPause` now keeps the forward escape steering preloaded instead of centering the wheels
+  - repeated block events now keep the current committed escape side unless that side becomes impossible or the opposite side becomes decisively more open
+- Verification:
+  - `pio run -e exploremap -j1` succeeded after the turning-consistency pass
+- Upload status:
+  - latest turning-consistency build uploaded successfully to `COM7`
 - Remaining manual cleanup outside this blocked session:
   - delete stray cache directories `p3`, `p4`, and `p5`
 - Companion-display handoff docs intentionally kept:

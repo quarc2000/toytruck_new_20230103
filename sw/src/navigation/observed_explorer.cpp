@@ -75,12 +75,12 @@ constexpr int32_t FORWARD_SLOWDOWN_CM = 30;
 constexpr int32_t REVERSE_SPEED = -100;
 constexpr int32_t MOTOR_KICK_SPEED = 100;
 constexpr int32_t FORWARD_STEER = 30;
-constexpr int32_t FORWARD_STEER_COMMITTED = 85;
-constexpr int32_t REVERSE_STEER = 65;
-constexpr int32_t HEADING_HOLD_MAX = 60;
-constexpr int32_t HEADING_DEG10_PER_STEER = 2;
-constexpr int32_t YAW_DAMP_MAX = 30;
-constexpr int32_t YAW_DPS10_PER_STEER = 8;
+constexpr int32_t FORWARD_STEER_COMMITTED = 100;
+constexpr int32_t REVERSE_STEER = 100;
+constexpr int32_t HEADING_HOLD_MAX = 70;
+constexpr int32_t HEADING_DEG10_PER_STEER = 1;
+constexpr int32_t YAW_DAMP_MAX = 35;
+constexpr int32_t YAW_DPS10_PER_STEER = 6;
 constexpr int32_t TRUCK_LENGTH_MM = 410;
 constexpr int32_t FRONT_LIDAR_SPACING_MM = 105;
 constexpr int32_t FRONT_WALL_RESPONSE_MM = TRUCK_LENGTH_MM + 200;
@@ -112,7 +112,10 @@ constexpr TickType_t RECOVER_PAUSE_MS = 400;
 constexpr TickType_t RECOVER_UNKNOWN_RETRY_MS = 1200;
 constexpr TickType_t MOTOR_KICK_MS = 100;
 constexpr TickType_t MOTOR_REKICK_MS = 200;
-constexpr TickType_t TURN_COMMIT_HOLD_MS = 8000;
+constexpr TickType_t TURN_COMMIT_HOLD_MS = 15000;
+constexpr int32_t TURN_COMMIT_RELEASE_FRONT_MM = TRUCK_LENGTH_MM * 2;
+constexpr int32_t TURN_COMMIT_RELEASE_SIDE_CM = 20;
+constexpr int32_t TURN_COMMIT_FLIP_DELTA_CM = SIDE_CLEAR_DELTA_CM * 2;
 constexpr TickType_t FRONTIER_REPLAN_MS = 500;
 constexpr TickType_t REMOTE_CONTROL_TIMEOUT_DEFAULT_MS = 1500;
 constexpr TickType_t REMOTE_CONTROL_TIMEOUT_MIN_MS = 250;
@@ -508,22 +511,25 @@ int32_t frontWallAngleDeg10(int32_t lidarLeftMm, int32_t lidarRightMm)
     return lroundf(angleRad * 1800.0f / 3.14159265f);
 }
 
-int32_t frontWallAngleCorrection(int32_t lidarLeftMm, int32_t lidarRightMm)
+bool shouldKeepCommittedTurn(int32_t nearestFrontMm, int32_t leftCm, int32_t rightCm, int32_t wallAngleDeg10)
 {
-    if (!lidarKnown(lidarLeftMm) || !lidarKnown(lidarRightMm))
+    if (nearestFrontMm <= TURN_COMMIT_RELEASE_FRONT_MM)
     {
-        return 0;
+        return true;
     }
-
-    const int32_t nearestWallMm = min(lidarLeftMm, lidarRightMm);
-    if (nearestWallMm > FRONT_WALL_RESPONSE_MM)
+    if (ultrasonicKnown(leftCm) && leftCm <= TURN_COMMIT_RELEASE_SIDE_CM)
     {
-        return 0;
+        return true;
     }
-
-    const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
-    const int32_t divisor = nearestWallMm <= FRONT_WALL_NEAR_MM ? FRONT_WALL_DEG10_PER_STEER_NEAR : FRONT_WALL_DEG10_PER_STEER_FAR;
-    return max(-FRONT_WALL_STEER_MAX, min(FRONT_WALL_STEER_MAX, wallAngleDeg10 / divisor));
+    if (ultrasonicKnown(rightCm) && rightCm <= TURN_COMMIT_RELEASE_SIDE_CM)
+    {
+        return true;
+    }
+    if (abs(wallAngleDeg10) >= 50)
+    {
+        return true;
+    }
+    return false;
 }
 
 int32_t sideWallCorrection(int32_t leftCm, int32_t rightCm)
@@ -595,6 +601,34 @@ int32_t forwardBiasSteer(int32_t bias, int32_t nearestFrontMm, bool committedBia
         FORWARD_STEER_COMMITTED :
         FORWARD_STEER;
     return bias > 0 ? magnitude : -magnitude;
+}
+
+int32_t enforceCommittedForwardTurn(int32_t steerCommand, int32_t bias, int32_t nearestFrontMm, bool committedBiasActive)
+{
+    if (!committedBiasActive || bias == TURN_NEUTRAL || nearestFrontMm > FRONT_WALL_TURN_COMMIT_MM)
+    {
+        return clampSteer(steerCommand);
+    }
+
+    constexpr int32_t COMMITTED_FORWARD_STEER_MIN = 75;
+    if (bias > 0)
+    {
+        return max(steerCommand, COMMITTED_FORWARD_STEER_MIN);
+    }
+    return min(steerCommand, -COMMITTED_FORWARD_STEER_MIN);
+}
+
+int32_t reverseBiasSteer(int32_t bias)
+{
+    if (bias == TURN_NEUTRAL)
+    {
+        return 0;
+    }
+
+    // `bias` represents the desired yaw escape direction in the world frame.
+    // With front-wheel steering, reversing requires the opposite wheel angle to
+    // achieve the same yaw direction as the later forward phase.
+    return bias > 0 ? -REVERSE_STEER : REVERSE_STEER;
 }
 
 const char *controlModeLabel(ControlMode mode)
@@ -670,6 +704,35 @@ int32_t chooseRecoveryBias(int32_t leftCm, int32_t rightCm, int32_t previous)
 {
     const bool leftKnown = ultrasonicKnown(leftCm);
     const bool rightKnown = ultrasonicKnown(rightCm);
+    if (previous != TURN_NEUTRAL)
+    {
+        if (previous == TURN_LEFT)
+        {
+            if (leftKnown && leftCm <= SIDE_MIN_CM)
+            {
+                return TURN_RIGHT;
+            }
+            if (leftKnown && rightKnown && (rightCm - leftCm) >= TURN_COMMIT_FLIP_DELTA_CM)
+            {
+                return TURN_RIGHT;
+            }
+            return TURN_LEFT;
+        }
+
+        if (previous == TURN_RIGHT)
+        {
+            if (rightKnown && rightCm <= SIDE_MIN_CM)
+            {
+                return TURN_LEFT;
+            }
+            if (leftKnown && rightKnown && (rightCm - leftCm) <= -TURN_COMMIT_FLIP_DELTA_CM)
+            {
+                return TURN_LEFT;
+            }
+            return TURN_RIGHT;
+        }
+    }
+
     if (leftKnown && rightKnown)
     {
         const int32_t delta = rightCm - leftCm;
@@ -840,9 +903,11 @@ void ObservedExplorerService::runTask()
             if (forwardClear == FORWARD_CLEAR)
             {
                 const int32_t plannedBias = frontierPlan.bias != TURN_NEUTRAL ? frontierPlan.bias : sensorTurnBias;
+                const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
                 const bool committedBiasActive =
                     committedForwardBias != TURN_NEUTRAL &&
-                    (nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS;
+                    ((nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS ||
+                     shouldKeepCommittedTurn(nearestFrontMm, leftCm, rightCm, wallAngleDeg10));
                 const int32_t rawBias = committedBiasActive ? committedForwardBias : plannedBias;
                 const int32_t bias = constrainBiasAwayFromWall(rawBias, leftCm, rightCm);
                 if (lastCommandedSpeed <= 0)
@@ -855,18 +920,21 @@ void ObservedExplorerService::runTask()
                 const int32_t headingError = wrappedHeadingErrorDeg10(headingTargetDeg10, headingDeg10);
                 const int32_t headingCorrection = headingHoldCorrection(headingTargetDeg10, headingDeg10);
                 const int32_t yawCorrection = yawDampingCorrection(yawRateDegPs10);
-                const int32_t wallAngleCorrection = frontWallAngleCorrection(lidarLeftMm, lidarRightMm);
+                const int32_t wallAngleCorrection = max(-FRONT_WALL_STEER_MAX, min(FRONT_WALL_STEER_MAX, wallAngleDeg10 / (nearestFrontMm <= FRONT_WALL_NEAR_MM ? FRONT_WALL_DEG10_PER_STEER_NEAR : FRONT_WALL_DEG10_PER_STEER_FAR)));
                 const int32_t wallCorrection = sideWallCorrection(leftCm, rightCm);
                 if (bias == TURN_NEUTRAL && wallCorrection == 0 && abs(headingError) >= TRIM_LEARN_ERROR_DEG10)
                 {
                     steer->nudgeNeutralTrim(headingCorrection / ADAPTIVE_TRIM_DIVISOR);
                 }
-                const int32_t steerCommand = clampSteer(
+                const int32_t steerCommand = enforceCommittedForwardTurn(
                     forwardBiasSteer(bias, nearestFrontMm, committedBiasActive) +
                     headingCorrection +
                     yawCorrection +
                     wallAngleCorrection +
-                    wallCorrection);
+                    wallCorrection,
+                    bias,
+                    nearestFrontMm,
+                    committedBiasActive);
                 const int32_t speed = maybeApplyKick(chooseForwardSpeed(), phaseStartedMs, nowMs, longitudinalAcc);
                 steer->direction(steerCommand);
                 drive->driving(speed);
@@ -879,7 +947,21 @@ void ObservedExplorerService::runTask()
                 drive->driving(0);
                 lastCommandedSpeed = 0;
                 publishDriverCommand(ExplorerRecoverStop, 0, 0);
-                committedReverseBias = chooseRecoveryBias(leftCm, rightCm, committedReverseBias);
+                const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
+                const bool keepCommittedBias =
+                    committedForwardBias != TURN_NEUTRAL &&
+                    ((nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS ||
+                     shouldKeepCommittedTurn(nearestFrontMm, leftCm, rightCm, wallAngleDeg10));
+                if (keepCommittedBias)
+                {
+                    committedReverseBias = committedForwardBias;
+                }
+                else
+                {
+                    committedReverseBias = chooseRecoveryBias(leftCm, rightCm, committedReverseBias);
+                }
+                // Keep one shared "desired yaw escape" direction across reverse and forward.
+                // Reverse and forward convert that intent to different wheel signs.
                 committedForwardBias = committedReverseBias;
                 committedBiasStartedMs = nowMs;
                 state = ExplorerRecoverStop;
@@ -889,7 +971,7 @@ void ObservedExplorerService::runTask()
 
         case ExplorerRecoverStop:
         {
-            const int32_t steerCommand = committedReverseBias > 0 ? REVERSE_STEER : -REVERSE_STEER;
+            const int32_t steerCommand = reverseBiasSteer(committedReverseBias);
             steer->direction(steerCommand);
             drive->driving(0);
             lastCommandedSpeed = 0;
@@ -916,7 +998,7 @@ void ObservedExplorerService::runTask()
             }
             else
             {
-                const int32_t steerCommand = committedReverseBias > 0 ? REVERSE_STEER : -REVERSE_STEER;
+                const int32_t steerCommand = reverseBiasSteer(committedReverseBias);
                 const int32_t speed = maybeApplyKick(REVERSE_SPEED, phaseStartedMs, nowMs, longitudinalAcc);
                 steer->direction(steerCommand);
                 drive->driving(speed);
@@ -931,15 +1013,19 @@ void ObservedExplorerService::runTask()
             break;
 
         case ExplorerRecoverPause:
-            steer->direction(0);
+        {
+            const int32_t steerCommand = forwardBiasSteer(committedForwardBias, nearestFrontMm, true);
+            steer->direction(steerCommand);
             drive->driving(0);
             lastCommandedSpeed = 0;
-            publishDriverCommand(ExplorerRecoverPause, 0, 0);
+            publishDriverCommand(ExplorerRecoverPause, 0, steerCommand);
             if (nowMs - stateStartedMs >= RECOVER_PAUSE_MS)
             {
                 if (forwardClear == FORWARD_CLEAR)
                 {
-                    if (nowMs - committedBiasStartedMs >= TURN_COMMIT_HOLD_MS)
+                    const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
+                    if ((nowMs - committedBiasStartedMs) >= TURN_COMMIT_HOLD_MS &&
+                        !shouldKeepCommittedTurn(nearestFrontMm, leftCm, rightCm, wallAngleDeg10))
                     {
                         committedForwardBias = TURN_NEUTRAL;
                     }
@@ -964,6 +1050,7 @@ void ObservedExplorerService::runTask()
                 }
             }
             break;
+        }
 
         case ExplorerFinished:
             steer->direction(0);

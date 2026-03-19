@@ -26,8 +26,10 @@ void Config::Begin(void)
         motorType = SINGLE;
         motorReverse = false;
         steerType = SERVO;
-        steer_servo_min = 60;
-        steer_servo_max = 105;
+        // Servo endpoints are LEDC duty counts at 50 Hz with 10-bit resolution.
+        // They are calibration values for full-left and full-right wheel angle, not percentages or degrees.
+        steer_servo_min = 55;
+        steer_servo_max = 110;
         steer_servo_adjust = 5;
         break;
 
@@ -36,8 +38,10 @@ void Config::Begin(void)
         motorType = DIFFERENTIAL;
         motorReverse = true;
         steerType = SERVO;
-        steer_servo_min = 60;
-        steer_servo_max = 105;
+        // Servo endpoints are LEDC duty counts at 50 Hz with 10-bit resolution.
+        // They are calibration values for full-left and full-right wheel angle, not percentages or degrees.
+        steer_servo_min = 55;
+        steer_servo_max = 110;
         steer_servo_adjust = 5;
         break;
 
