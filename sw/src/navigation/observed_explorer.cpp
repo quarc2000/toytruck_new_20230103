@@ -75,16 +75,18 @@ constexpr int32_t FORWARD_SLOWDOWN_CM = 30;
 constexpr int32_t REVERSE_SPEED = -100;
 constexpr int32_t MOTOR_KICK_SPEED = 100;
 constexpr int32_t FORWARD_STEER = 30;
+constexpr int32_t FORWARD_STEER_COMMITTED = 85;
 constexpr int32_t REVERSE_STEER = 65;
-constexpr int32_t HEADING_HOLD_MAX = 45;
-constexpr int32_t HEADING_DEG10_PER_STEER = 4;
-constexpr int32_t YAW_DAMP_MAX = 25;
-constexpr int32_t YAW_DPS10_PER_STEER = 12;
+constexpr int32_t HEADING_HOLD_MAX = 60;
+constexpr int32_t HEADING_DEG10_PER_STEER = 2;
+constexpr int32_t YAW_DAMP_MAX = 30;
+constexpr int32_t YAW_DPS10_PER_STEER = 8;
 constexpr int32_t TRUCK_LENGTH_MM = 410;
 constexpr int32_t FRONT_LIDAR_SPACING_MM = 105;
 constexpr int32_t FRONT_WALL_RESPONSE_MM = TRUCK_LENGTH_MM + 200;
 constexpr int32_t FRONT_WALL_STEER_MAX = 35;
 constexpr int32_t FRONT_WALL_MIN_VALID_MM = 40;
+constexpr int32_t FRONT_WALL_TURN_COMMIT_MM = TRUCK_LENGTH_MM + 120;
 constexpr int32_t FRONT_WALL_DEG10_PER_STEER_FAR = 30;
 constexpr int32_t FRONT_WALL_DEG10_PER_STEER_NEAR = 18;
 constexpr int32_t FRONT_WALL_NEAR_MM = 250;
@@ -218,6 +220,15 @@ bool ultrasonicKnown(int32_t distCm)
 bool lidarKnown(int32_t distMm)
 {
     return distMm >= FRONT_WALL_MIN_VALID_MM && distMm < 2999;
+}
+
+int32_t nearestFrontObstacleMm(int32_t lidarLeftMm, int32_t lidarRightMm, int32_t frontCm)
+{
+    int32_t nearest = 3000;
+    if (lidarKnown(lidarLeftMm)) nearest = min(nearest, lidarLeftMm);
+    if (lidarKnown(lidarRightMm)) nearest = min(nearest, lidarRightMm);
+    if (ultrasonicKnown(frontCm)) nearest = min(nearest, frontCm * 10);
+    return nearest;
 }
 
 bool knownFree(CellCoord cell)
@@ -572,6 +583,20 @@ int32_t constrainBiasAwayFromWall(int32_t bias, int32_t leftCm, int32_t rightCm)
     return bias;
 }
 
+int32_t forwardBiasSteer(int32_t bias, int32_t nearestFrontMm, bool committedBiasActive)
+{
+    if (bias == TURN_NEUTRAL)
+    {
+        return 0;
+    }
+
+    const int32_t magnitude =
+        (committedBiasActive && nearestFrontMm <= FRONT_WALL_TURN_COMMIT_MM) ?
+        FORWARD_STEER_COMMITTED :
+        FORWARD_STEER;
+    return bias > 0 ? magnitude : -magnitude;
+}
+
 const char *controlModeLabel(ControlMode mode)
 {
     switch (mode)
@@ -751,6 +776,7 @@ void ObservedExplorerService::runTask()
         const int32_t yawRateDegPs10 = globalVar_get(cleanedGyZ);
         const int32_t lidarLeftMm = globalVar_get(rawLidarFrontLeft);
         const int32_t lidarRightMm = globalVar_get(rawLidarFrontRight);
+        const int32_t nearestFrontMm = nearestFrontObstacleMm(lidarLeftMm, lidarRightMm, globalVar_get(rawDistFront));
         const int32_t longitudinalAcc = globalVar_get(cleanedAccX);
         const bool rearBlocked = rearCm > 0 && rearCm < REVERSE_BLOCK_CM;
 
@@ -814,7 +840,11 @@ void ObservedExplorerService::runTask()
             if (forwardClear == FORWARD_CLEAR)
             {
                 const int32_t plannedBias = frontierPlan.bias != TURN_NEUTRAL ? frontierPlan.bias : sensorTurnBias;
-                const int32_t bias = constrainBiasAwayFromWall(plannedBias, leftCm, rightCm);
+                const bool committedBiasActive =
+                    committedForwardBias != TURN_NEUTRAL &&
+                    (nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS;
+                const int32_t rawBias = committedBiasActive ? committedForwardBias : plannedBias;
+                const int32_t bias = constrainBiasAwayFromWall(rawBias, leftCm, rightCm);
                 if (lastCommandedSpeed <= 0)
                 {
                     // Capture the forward heading target at the actual motion start, not only when the
@@ -832,7 +862,7 @@ void ObservedExplorerService::runTask()
                     steer->nudgeNeutralTrim(headingCorrection / ADAPTIVE_TRIM_DIVISOR);
                 }
                 const int32_t steerCommand = clampSteer(
-                    (bias > 0 ? FORWARD_STEER : (bias < 0 ? -FORWARD_STEER : 0)) +
+                    forwardBiasSteer(bias, nearestFrontMm, committedBiasActive) +
                     headingCorrection +
                     yawCorrection +
                     wallAngleCorrection +
@@ -850,7 +880,7 @@ void ObservedExplorerService::runTask()
                 lastCommandedSpeed = 0;
                 publishDriverCommand(ExplorerRecoverStop, 0, 0);
                 committedReverseBias = chooseRecoveryBias(leftCm, rightCm, committedReverseBias);
-                committedForwardBias = frontierPlan.bias;
+                committedForwardBias = committedReverseBias;
                 committedBiasStartedMs = nowMs;
                 state = ExplorerRecoverStop;
                 stateStartedMs = nowMs;

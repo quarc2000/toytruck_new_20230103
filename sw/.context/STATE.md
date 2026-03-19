@@ -12,12 +12,20 @@
   - stronger heading and yaw correction for faster straightening
   - front-wall angle estimated from the PAT004 front lidar pair using `105 mm` spacing
   - extra steering correction now stays active when approaching a wall at an angle
+- New live feedback:
+  - long straight runs still correct too slowly for small heading errors
+  - after backing with a turn, the forward phase does not preserve enough turn commitment near the wall
+- Latest fix now in code:
+  - stronger small-error heading response
+  - `committedForwardBias` now follows the actual recovery direction
+  - forward steering now uses that committed bias and can go much steeper near a close wall
 - Local verification complete:
-  - `pio run -e exploremap -j1` succeeded after the tuning pass
+  - `pio run -e exploremap -j1` succeeded after the committed-turn pass
 - Uploaded successfully to `COM7`.
-- Next real check is truck-side retest in:
-  - the small enclosure for straightness and side-wall behavior
-  - the larger open space for forward motion, wall-approach angle, and turn-away behavior after the first wall decision
+- Newly identified compatibility gap:
+  - current `env:exploremap` is not safe to assume on trucks without the IO expander and front `VL53L0X` sensors
+  - expander-dependent services start unconditionally
+  - current forward-clear fusion assumes the front lidar pair exists
 - Remaining manual cleanup outside this blocked session:
   - delete stray cache directories `p3`, `p4`, and `p5`
 - Companion-display handoff docs intentionally kept:

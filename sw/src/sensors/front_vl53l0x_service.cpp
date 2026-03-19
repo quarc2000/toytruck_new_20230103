@@ -28,6 +28,14 @@ Vl53l0xBasic front_left_sensor(VL53L0X_ADDR);
 bool front_right_ready = false;
 bool front_left_ready = false;
 bool front_lidar_task_started = false;
+bool front_lidar_hw_present = false;
+
+bool deviceResponds(uint8_t address)
+{
+    task_safe_wire_begin(address);
+    const uint8_t result = task_safe_wire_end();
+    return result == 0;
+}
 
 int32_t sanitizeDistanceMm(uint16_t distance_mm)
 {
@@ -158,6 +166,14 @@ void FrontVl53l0xService::Begin()
     globalVar_set(rawLidarFront, 0);
     globalVar_set(rawLidarFrontRight, 0);
     globalVar_set(rawLidarFrontLeft, 0);
+
+    front_lidar_hw_present = deviceResponds(TCA9548_ADDR);
+    if (!front_lidar_hw_present)
+    {
+        Serial.println("Front VL53L0X expander not present, lidar path disabled");
+        front_lidar_task_started = true;
+        return;
+    }
 
     front_lidar_expander.initSwitch();
     front_right_ready = initSensor(FRONT_RIGHT_CHANNEL, front_right_sensor);

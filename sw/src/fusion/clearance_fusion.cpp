@@ -122,6 +122,14 @@ int fusionComputeForwardClear()
     const int32_t usensor_state = ultrasonicFrontState(globalVar_get(rawDistFront));
     const int32_t lidar_right_state = lidarFrontState(globalVar_get(rawLidarFrontRight));
     const int32_t lidar_left_state = lidarFrontState(globalVar_get(rawLidarFrontLeft));
+    const bool no_front_lidar_pair =
+        globalVar_get(rawLidarFrontRight) <= 0 &&
+        globalVar_get(rawLidarFrontLeft) <= 0;
+
+    if (no_front_lidar_pair)
+    {
+        return forwardClearHysteresis(usensor_state);
+    }
 
     if (usensor_state == FUSE_FORWARD_BLOCKED ||
         lidar_right_state == FUSE_FORWARD_BLOCKED ||

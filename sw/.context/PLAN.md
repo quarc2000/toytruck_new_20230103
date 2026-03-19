@@ -49,11 +49,17 @@
   - applied extra forward steering correction when approaching a wall at an angle, especially once the wall is inside roughly one truck length plus margin
   - verified with `pio run -e exploremap -j1`
   - uploaded successfully to `COM7`
+- Tightened the controller again after the next truck run:
+  - increased small-error heading response further so steering reacts earlier to sub-degree drift
+  - changed recovery handling so `committedForwardBias` now follows the actual chosen recovery turn direction
+  - made the forward phase honor that committed turn bias and use much steeper steering near a close front wall
+  - verified with `pio run -e exploremap -j1`
+  - uploaded successfully to `COM7`
 
 ## In Progress
-- Run the next truck-side validation pass for the wall-angle-aware `env:exploremap` runtime:
-  - retest open-area straightness and front-wall approach angle
-  - verify that forward motion now keeps turning away from an angled wall after the first turn decision
+- Restore compatibility of `env:exploremap` with trucks that have no IO expander and no front `VL53L0X` pair:
+  - make expander-dependent services degrade cleanly when the hardware is absent
+  - make forward-clear fusion fall back sensibly when the front lidar pair is not installed
 
 ## Steps Remaining
 - upload to the truck and validate:

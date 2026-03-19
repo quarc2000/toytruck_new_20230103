@@ -1,8 +1,10 @@
 #include <lights/light_service.h>
 
+#include <task_safe_wire.h>
 #include <variables/setget.h>
 
 namespace {
+constexpr uint8_t TCA9548_ADDR = 0x70;
 constexpr uint8_t MAIN_LIGHT_PIN = 0;
 constexpr uint8_t BRAKE_LIGHT_PIN = 1;
 constexpr uint8_t LEFT_INDICATOR_PIN = 8;
@@ -14,6 +16,13 @@ constexpr long BRAKE_DECEL_THRESHOLD_COUNTS = -120;
 constexpr unsigned long INDICATOR_BLINK_PERIOD_MS = 250;
 constexpr unsigned long BRAKE_HOLD_PERIOD_MS = 1000;
 constexpr TickType_t LIGHT_TASK_PERIOD_TICKS = pdMS_TO_TICKS(50);
+
+bool deviceResponds(uint8_t address)
+{
+    task_safe_wire_begin(address);
+    const uint8_t result = task_safe_wire_end();
+    return result == 0;
+}
 } // namespace
 
 LightService::LightService()
@@ -22,6 +31,10 @@ LightService::LightService()
 void LightService::Begin()
 {
     if (begun) {
+        return;
+    }
+    if (!deviceResponds(TCA9548_ADDR)) {
+        begun = true;
         return;
     }
     expander.initSwitch();
