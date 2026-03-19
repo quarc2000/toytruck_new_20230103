@@ -57,6 +57,18 @@ Current display bootstrap client baseline:
   "controlMode": "auto",
   "remoteTimeoutMs": 1500,
   "remoteAgeMs": 42,
+  "headingDeg10": 0,
+  "gyroHeadingDeg10": 0,
+  "magHeadingDeg10": 0,
+  "fusedHeadingDeg10": 0,
+  "magDisturbance": 0,
+  "expanderPresent": 1,
+  "gy271Present": 1,
+  "frontLidarPresent": 1,
+  "cleanedAccX": 0,
+  "cleanedGyZ": 0,
+  "calcSpeed": 0,
+  "calcDistance": 0,
   "driverSpeed": 100,
   "driverTurn": 0
 }
@@ -71,10 +83,22 @@ Current display bootstrap client baseline:
 | `frontierReachable` | boolean | Whether the planner currently sees a reachable frontier cell |
 | `frontierBias` | integer | Turn preference toward the current frontier plan: `-1` left, `0` neutral, `1` right |
 | `posePacked` | integer | Packed 32-bit observed pose |
-| `heading` | integer | Relative heading in `deg * 10`, wrapped to `0..3599` |
+| `heading` | integer | Runtime-facing absolute heading in `deg * 10`, wrapped to `0..3599` |
 | `controlMode` | string | One of `auto`, `remote`, or `remote_timeout` |
 | `remoteTimeoutMs` | integer | Active remote-command watchdog timeout in milliseconds |
 | `remoteAgeMs` | integer | Milliseconds since the latest remote-control command update |
+| `headingDeg10` | integer | Current runtime-facing absolute heading in `deg * 10`, duplicated explicitly for motion-debug readability |
+| `gyroHeadingDeg10` | integer | Raw gyro-integrated heading in `deg * 10` before magnetic fusion |
+| `magHeadingDeg10` | integer | Current magnetic course from the GY-271 in `deg * 10` |
+| `fusedHeadingDeg10` | integer | Current fused heading in `deg * 10`; same semantic source as `heading` |
+| `magDisturbance` | integer | `1` when the magnetometer path currently distrusts the magnetic reading, else `0` |
+| `expanderPresent` | integer | `1` if the runtime detected the mux or expander path, else `0` |
+| `gy271Present` | integer | `1` if the GY-271 path was detected and started, else `0` |
+| `frontLidarPresent` | integer | `1` if the front VL53L0X path was detected, else `0` |
+| `cleanedAccX` | integer | Current cleaned forward accelerometer value from the active MPU6050 path |
+| `cleanedGyZ` | integer | Current cleaned gyro Z value in `deg/s * 10` from the active MPU6050 path |
+| `calcSpeed` | integer | Current inertial speed estimate in `mm/s` from the active plain MPU6050 path |
+| `calcDistance` | integer | Current inertial distance estimate in `mm` from the active plain MPU6050 path |
 | `driverSpeed` | integer | Current desired speed command on the normalized driver scale |
 | `driverTurn` | integer | Current desired turn command on the normalized steering scale |
 
@@ -93,14 +117,15 @@ Current `ObservedExplorerService` state values:
 
 ### `heading`
 
-`heading` is not absolute world north.
-
-It is the runtime's heading relative to the exploration start heading:
+`heading` is now the runtime's absolute magnetic-frame heading:
 
 - unit: tenths of degrees
 - range: `0..3599`
 - positive direction: clockwise
-- exploration start reference: truck initially facing positive observed-map `Y`
+- `0 = magnetic north`
+- `900 = east`
+- `1800 = south`
+- `2700 = west`
 
 ### `posePacked`
 
@@ -128,7 +153,7 @@ Current runtime-specific caveat:
 
 - the generic packed-pose helper was designed around north-referenced direction and signed `cm/s`
 - the current `env:exploremap` producer actually publishes:
-  - `direction = relative heading / 5 degrees`
+  - `direction = fused absolute heading / 5 degrees`
   - `speed = normalized commanded speed`, not measured `cm/s`
 
 So the transport shape is stable, but the last two semantics are still partly provisional.
@@ -200,7 +225,7 @@ Current active meanings:
 |---|---|---|
 | `x` | integer | Current observed-grid X cell |
 | `y` | integer | Current observed-grid Y cell |
-| `heading` | integer | Relative heading in `deg * 10`, same convention as `/status.heading` |
+| `heading` | integer | Absolute magnetic-frame heading in `deg * 10`, same convention as `/status.heading` |
 | `speed` | integer | Current commanded speed on the normalized driver scale |
 
 ### Current fixed geometry
@@ -226,6 +251,7 @@ Current glyph meanings:
 |---|---|
 | `R` | current robot cell |
 | `#` | known blocked cell |
+| `~` | suspect obstacle cell from lower-confidence or wider-beam evidence |
 | `v` | known visited cell |
 | `.` | known free cell |
 | `?` | unknown cell |

@@ -1,5 +1,6 @@
 #include <lights/light_service.h>
 
+#include <basic_telemetry/basic_logger.h>
 #include <task_safe_wire.h>
 #include <variables/setget.h>
 
@@ -33,10 +34,14 @@ void LightService::Begin()
     if (begun) {
         return;
     }
-    if (!deviceResponds(TCA9548_ADDR)) {
+    const bool expanderPresent = deviceResponds(TCA9548_ADDR);
+    globalVar_set(configExpanderPresent, expanderPresent ? 1 : globalVar_get(configExpanderPresent));
+    if (!expanderPresent) {
+        basic_log_info("LightService mux not detected, light path disabled");
         begun = true;
         return;
     }
+    basic_log_info("LightService mux detected");
     expander.initSwitch();
     expander.initGPIO();
     applyOutputs(false, false, false, false, false);

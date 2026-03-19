@@ -105,7 +105,18 @@ constexpr int32_t SIDE_CLEAR_DELTA_CM = 12;
 constexpr int32_t TRIM_LEARN_ERROR_DEG10 = 40;
 constexpr int32_t MOTION_ACCEL_THRESHOLD = 40;
 constexpr int32_t MAX_SENSOR_MM = 2000;
-constexpr TickType_t LOOP_MS = 100;
+constexpr int32_t RAY_STEP_MM = 50;
+constexpr int32_t LIDAR_MAP_MAX_MM = 1800;
+constexpr int32_t FRONT_LIDAR_HARD_BLOCK_MAX_MM = 700;
+constexpr int32_t FRONT_LIDAR_SUSPECT_MAX_MM = 1400;
+constexpr int32_t FRONT_SENSOR_FORWARD_OFFSET_MM = 130;
+constexpr int32_t SIDE_SENSOR_LATERAL_OFFSET_MM = 60;
+constexpr int32_t COMMAND_SPEED_MMPS_PER_UNIT = 3;
+constexpr int32_t POSE_LIDAR_CORRECTION_TRUST_MAX_MM = 700;
+constexpr int32_t POSE_LIDAR_DELTA_MIN_MM = 5;
+constexpr int32_t POSE_LIDAR_DELTA_MAX_MM = 80;
+constexpr int32_t POSE_LIDAR_DELTA_DEVIATION_MAX_MM = 40;
+constexpr TickType_t LOOP_MS = 50;
 constexpr TickType_t RECOVER_STOP_MS = 200;
 constexpr TickType_t RECOVER_REVERSE_MS = 1500;
 constexpr TickType_t RECOVER_PAUSE_MS = 400;
@@ -133,13 +144,11 @@ TickType_t phaseStartedMs = 0;
 TickType_t committedBiasStartedMs = 0;
 TickType_t lastPlanMs = 0;
 TickType_t lastPoseUpdateMs = 0;
-int32_t headingZeroDeg10 = 0;
-int32_t headingTargetDeg10 = 0;
+    int32_t headingTargetDeg10 = 0;
 int32_t poseXmm = 0;
 int32_t poseYmm = 0;
 int32_t lastCommandedSpeed = 0;
-int32_t lastFrontObstacleMm = 0;
-int32_t lastRearObstacleMm = 0;
+int32_t lastTrustedFrontLidarMm = 0;
 int32_t committedReverseBias = TURN_RIGHT;
 int32_t committedForwardBias = TURN_NEUTRAL;
 FrontierPlan frontierPlan = {true, false, TURN_NEUTRAL, {GRID_CENTER_X, GRID_CENTER_Y}};
@@ -174,9 +183,14 @@ int32_t wrapHeadingDeg10(int32_t heading)
     return heading;
 }
 
-int32_t relativeHeadingDeg10()
+int32_t currentMapHeadingDeg10()
 {
-    return wrapHeadingDeg10(globalVar_get(calcHeading) - headingZeroDeg10);
+    return wrapHeadingDeg10(globalVar_get(fuseHeadingDeg10));
+}
+
+int32_t currentControlHeadingDeg10()
+{
+    return wrapHeadingDeg10(globalVar_get(calcHeading));
 }
 
 int32_t wrappedHeadingErrorDeg10(int32_t target, int32_t current)
@@ -213,6 +227,25 @@ CellCoord currentCell()
     return {
         static_cast<int16_t>(GRID_CENTER_X + lroundf(static_cast<float>(poseXmm) / CELL_MM)),
         static_cast<int16_t>(GRID_CENTER_Y - lroundf(static_cast<float>(poseYmm) / CELL_MM))};
+}
+
+CellCoord cellFromMm(int32_t xMm, int32_t yMm)
+{
+    return {
+        static_cast<int16_t>(GRID_CENTER_X + lroundf(static_cast<float>(xMm) / CELL_MM)),
+        static_cast<int16_t>(GRID_CENTER_Y - lroundf(static_cast<float>(yMm) / CELL_MM))};
+}
+
+int32_t headingSin1000(int32_t headingDeg10)
+{
+    const float headingRad = (headingDeg10 / 10.0f) * 3.14159265f / 180.0f;
+    return lroundf(sinf(headingRad) * 1000.0f);
+}
+
+int32_t headingCos1000(int32_t headingDeg10)
+{
+    const float headingRad = (headingDeg10 / 10.0f) * 3.14159265f / 180.0f;
+    return lroundf(cosf(headingRad) * 1000.0f);
 }
 
 bool ultrasonicKnown(int32_t distCm)
@@ -272,62 +305,108 @@ void markVisited(CellCoord cell)
     observedMap.setConfidence(cell, 255);
 }
 
-void projectRay(CellCoord origin, CardinalDir dir, int32_t distanceMm, bool blocked)
+void clearFreeCell(CellCoord cell, uint8_t confidence)
 {
-    if (!observedMap.isInside(origin) || distanceMm <= 0)
+    if (!observedMap.isInside(cell))
     {
         return;
     }
 
-    const int32_t trustedMm = min(distanceMm, MAX_SENSOR_MM);
-    const int32_t freeCells = max(0L, trustedMm / CELL_MM - (blocked ? 1L : 0L));
-    for (int32_t i = 1; i <= freeCells; ++i)
+    observedMap.mergeFlags(cell, CellKnown | CellObserved);
+    observedMap.clearFlags(cell, CellBlocked | CellTemporaryBlock);
+    observedMap.setConfidence(cell, confidence);
+}
+
+void markBlockedCell(CellCoord cell, uint8_t confidence)
+{
+    if (!observedMap.isInside(cell))
     {
-        const CellCoord cell = stepCell(origin, dir, i);
-        if (!observedMap.isInside(cell))
-        {
-            break;
-        }
-        observedMap.mergeFlags(cell, CellKnown | CellObserved);
-        observedMap.clearFlags(cell, CellBlocked | CellTemporaryBlock);
-        observedMap.setConfidence(cell, 220);
+        return;
     }
 
-    if (blocked)
+    observedMap.mergeFlags(cell, CellKnown | CellObserved | CellBlocked);
+    observedMap.clearFlags(cell, CellTemporaryBlock | CellLowConfidence);
+    observedMap.setConfidence(cell, confidence);
+}
+
+void markSuspectCell(CellCoord cell, uint8_t confidence)
+{
+    if (!observedMap.isInside(cell))
     {
-        const CellCoord hit = stepCell(origin, dir, max<int32_t>(1, trustedMm / CELL_MM));
-        if (observedMap.isInside(hit))
-        {
-            observedMap.mergeFlags(hit, CellKnown | CellObserved | CellBlocked);
-            observedMap.setConfidence(hit, 255);
-        }
+        return;
+    }
+
+    observedMap.mergeFlags(cell, CellKnown | CellObserved | CellTemporaryBlock | CellLowConfidence);
+    observedMap.clearFlags(cell, CellBlocked);
+    observedMap.setConfidence(cell, confidence);
+}
+
+void projectRayMm(int32_t originXmm, int32_t originYmm, int32_t headingDeg10, int32_t distanceMm, bool blocked, int32_t trustMaxMm, int32_t hardBlockedMaxMm, int32_t suspectMaxMm, uint8_t freeConfidence, uint8_t blockedConfidence, uint8_t suspectConfidence)
+{
+    if (distanceMm <= 0)
+    {
+        return;
+    }
+
+    const int32_t trustedMm = min(distanceMm, trustMaxMm);
+    if (trustedMm <= 0)
+    {
+        return;
+    }
+
+    const int32_t sin1000 = headingSin1000(headingDeg10);
+    const int32_t cos1000 = headingCos1000(headingDeg10);
+    const int32_t freeLimitMm = blocked ? max<int32_t>(0, trustedMm - RAY_STEP_MM) : trustedMm;
+
+    for (int32_t stepMm = RAY_STEP_MM; stepMm <= freeLimitMm; stepMm += RAY_STEP_MM)
+    {
+        const int32_t sampleXmm = originXmm + (sin1000 * stepMm) / 1000;
+        const int32_t sampleYmm = originYmm + (cos1000 * stepMm) / 1000;
+        clearFreeCell(cellFromMm(sampleXmm, sampleYmm), freeConfidence);
+    }
+
+    if (blocked && trustedMm <= hardBlockedMaxMm)
+    {
+        const int32_t hitXmm = originXmm + (sin1000 * trustedMm) / 1000;
+        const int32_t hitYmm = originYmm + (cos1000 * trustedMm) / 1000;
+        markBlockedCell(cellFromMm(hitXmm, hitYmm), blockedConfidence);
+        return;
+    }
+
+    if (blocked && trustedMm <= suspectMaxMm)
+    {
+        const int32_t hitXmm = originXmm + (sin1000 * trustedMm) / 1000;
+        const int32_t hitYmm = originYmm + (cos1000 * trustedMm) / 1000;
+        markSuspectCell(cellFromMm(hitXmm, hitYmm), suspectConfidence);
     }
 }
 
 void updateObservedMap()
 {
     const CellCoord robot = currentCell();
-    const CardinalDir forward = cardinalFromHeading(relativeHeadingDeg10());
-    const CardinalDir left = leftOf(forward);
-    const CardinalDir right = rightOf(forward);
-    const CardinalDir back = backOf(forward);
-    const int32_t usFront = globalVar_get(rawDistFront);
-    const int32_t usLeft = globalVar_get(rawDistLeft);
-    const int32_t usRight = globalVar_get(rawDistRight);
-    const int32_t usBack = globalVar_get(rawDistBack);
+    const int32_t headingDeg10 = currentMapHeadingDeg10();
     const int32_t lidarLeft = globalVar_get(rawLidarFrontLeft);
     const int32_t lidarRight = globalVar_get(rawLidarFrontRight);
+    const int32_t sin1000 = headingSin1000(headingDeg10);
+    const int32_t cos1000 = headingCos1000(headingDeg10);
+    const int32_t leftXmm = poseXmm - (cos1000 * SIDE_SENSOR_LATERAL_OFFSET_MM) / 1000;
+    const int32_t leftYmm = poseYmm + (sin1000 * SIDE_SENSOR_LATERAL_OFFSET_MM) / 1000;
+    const int32_t rightXmm = poseXmm + (cos1000 * SIDE_SENSOR_LATERAL_OFFSET_MM) / 1000;
+    const int32_t rightYmm = poseYmm - (sin1000 * SIDE_SENSOR_LATERAL_OFFSET_MM) / 1000;
 
     markVisited(robot);
-    if (ultrasonicKnown(usFront)) projectRay(robot, forward, usFront * 10L, true);
-    if (ultrasonicKnown(usLeft)) projectRay(robot, left, usLeft * 10L, true);
-    if (ultrasonicKnown(usRight)) projectRay(robot, right, usRight * 10L, true);
-    if (ultrasonicKnown(usBack)) projectRay(robot, back, usBack * 10L, true);
-    // The front lidars are mounted across the front bumper and both point forward.
-    // Treat 2999 mm as "no reliable hit inside range", so it only clears space and does not
-    // synthesize a blocked endpoint at the far edge of the trusted projection distance.
-    if (lidarLeft > 0) projectRay(stepCell(robot, left), forward, lidarLeft, lidarLeft < 2999);
-    if (lidarRight > 0) projectRay(stepCell(robot, right), forward, lidarRight, lidarRight < 2999);
+    // For mapping quality, rely on the forward VL53L0X pair only.
+    // The ultrasonic sensors remain useful for driving behavior, but their beam width makes
+    // the observed map too noisy for loop-closure or wall extraction.
+    // Keep their forward rays aligned to the real heading rather than snapping to a cardinal bucket.
+    if (lidarKnown(lidarLeft))
+    {
+        projectRayMm(leftXmm, leftYmm, headingDeg10, lidarLeft, lidarLeft < 2999, LIDAR_MAP_MAX_MM, FRONT_LIDAR_HARD_BLOCK_MAX_MM, FRONT_LIDAR_SUSPECT_MAX_MM, 220, 255, 160);
+    }
+    if (lidarKnown(lidarRight))
+    {
+        projectRayMm(rightXmm, rightYmm, headingDeg10, lidarRight, lidarRight < 2999, LIDAR_MAP_MAX_MM, FRONT_LIDAR_HARD_BLOCK_MAX_MM, FRONT_LIDAR_SUSPECT_MAX_MM, 220, 255, 160);
+    }
 }
 
 void publishPose()
@@ -335,7 +414,7 @@ void publishPose()
     const CellCoord cell = currentCell();
     globalVar_set(mapObservedCellSizeMm, CELL_MM);
     globalVar_set(mapProgrammedCellSizeMm, CELL_MM);
-    globalVar_set(mapObservedPosePacked, pos2int(static_cast<int8_t>(cell.x), static_cast<int8_t>(cell.y), static_cast<int8_t>(relativeHeadingDeg10() / 50), static_cast<int8_t>(lastCommandedSpeed)));
+    globalVar_set(mapObservedPosePacked, pos2int(static_cast<int8_t>(cell.x), static_cast<int8_t>(cell.y), static_cast<int8_t>(currentMapHeadingDeg10() / 50), static_cast<int8_t>(lastCommandedSpeed)));
     globalVar_set(mapProgrammedPosePacked, pos2int(unknownPackedGridPose()));
 }
 
@@ -407,7 +486,7 @@ FrontierPlan computeFrontierPlan()
         stepIndex = bfsParent[stepIndex];
     }
 
-    const CardinalDir currentDir = cardinalFromHeading(relativeHeadingDeg10());
+    const CardinalDir currentDir = cardinalFromHeading(currentMapHeadingDeg10());
     if (stepIndex == static_cast<int16_t>(startIndex))
     {
         const CardinalDir order[] = {currentDir, leftOf(currentDir), rightOf(currentDir), backOf(currentDir)};
@@ -442,29 +521,37 @@ void updatePose(TickType_t nowMs)
         return;
     }
 
-    int32_t distanceMm = abs(lastCommandedSpeed) * 4L * dtMs / 100;
-    const int32_t frontMm = ultrasonicKnown(globalVar_get(rawDistFront)) ? globalVar_get(rawDistFront) * 10L : 0;
-    const int32_t backMm = ultrasonicKnown(globalVar_get(rawDistBack)) ? globalVar_get(rawDistBack) * 10L : 0;
-    if (lastCommandedSpeed > 0 && frontMm > 0 && lastFrontObstacleMm > 0)
+    // The normalized drive command is not a physical speed unit.
+    // Use a conservative nominal mapping speed so dead reckoning does not stretch the map wildly
+    // before later fusion or wall alignment can correct it.
+    int32_t distanceMm = abs(lastCommandedSpeed) * COMMAND_SPEED_MMPS_PER_UNIT * dtMs / 1000;
+    const int32_t nominalDistanceMm = distanceMm;
+    const int32_t frontLidarMm = globalVar_get(rawLidarFront);
+    const bool trustedFrontLidar = lidarKnown(frontLidarMm) && frontLidarMm <= POSE_LIDAR_CORRECTION_TRUST_MAX_MM;
+    if (lastCommandedSpeed > 0 && trustedFrontLidar && lastTrustedFrontLidarMm > 0)
     {
-        const int32_t delta = lastFrontObstacleMm - frontMm;
-        if (delta > 0 && delta < 250) distanceMm = delta;
-        lastFrontObstacleMm = frontMm;
+        const int32_t delta = lastTrustedFrontLidarMm - frontLidarMm;
+        const bool plausibleDelta =
+            delta >= POSE_LIDAR_DELTA_MIN_MM &&
+            delta <= POSE_LIDAR_DELTA_MAX_MM &&
+            abs(delta - nominalDistanceMm) <= POSE_LIDAR_DELTA_DEVIATION_MAX_MM;
+        if (plausibleDelta)
+        {
+            distanceMm = delta;
+        }
     }
-    else if (lastCommandedSpeed < 0 && backMm > 0 && lastRearObstacleMm > 0)
+
+    if (trustedFrontLidar)
     {
-        const int32_t delta = lastRearObstacleMm - backMm;
-        if (delta > 0 && delta < 250) distanceMm = delta;
-        lastRearObstacleMm = backMm;
+        lastTrustedFrontLidarMm = frontLidarMm;
     }
     else
     {
-        lastFrontObstacleMm = frontMm;
-        lastRearObstacleMm = backMm;
+        lastTrustedFrontLidarMm = 0;
     }
 
     if (lastCommandedSpeed < 0) distanceMm = -distanceMm;
-    const float headingRad = (relativeHeadingDeg10() / 10.0f) * 3.14159265f / 180.0f;
+    const float headingRad = (currentMapHeadingDeg10() / 10.0f) * 3.14159265f / 180.0f;
     poseXmm += lroundf(sinf(headingRad) * distanceMm);
     poseYmm += lroundf(cosf(headingRad) * distanceMm);
 }
@@ -660,8 +747,7 @@ void enterAutonomousControlMode()
     stateStartedMs = 0;
     phaseStartedMs = 0;
     committedBiasStartedMs = 0;
-    lastFrontObstacleMm = 0;
-    lastRearObstacleMm = 0;
+    lastTrustedFrontLidarMm = 0;
     applyStoppedOutputs(ExplorerIdle);
 }
 
@@ -676,8 +762,7 @@ void enterRemoteControlMode(TickType_t timeoutMs)
     stateStartedMs = 0;
     phaseStartedMs = 0;
     committedBiasStartedMs = 0;
-    lastFrontObstacleMm = 0;
-    lastRearObstacleMm = 0;
+    lastTrustedFrontLidarMm = 0;
     applyStoppedOutputs(ExplorerIdle);
 }
 
@@ -751,6 +836,7 @@ char glyphAt(CellCoord cell)
     const MapCell c = observedMap.getCellOrDefault(cell);
     if ((c.flags & CellKnown) == 0) return '?';
     if ((c.flags & CellBlocked) != 0) return '#';
+    if ((c.flags & CellTemporaryBlock) != 0 || (c.flags & CellLowConfidence) != 0) return '~';
     if ((c.flags & CellVisited) != 0) return 'v';
     return '.';
 }
@@ -775,7 +861,7 @@ String buildMapJson()
     out += "\"robot\":{";
     out += "\"x\":" + String(robot.x) + ",";
     out += "\"y\":" + String(robot.y) + ",";
-    out += "\"heading\":" + String(relativeHeadingDeg10()) + ",";
+    out += "\"heading\":" + String(currentMapHeadingDeg10()) + ",";
     out += "\"speed\":" + String(lastCommandedSpeed);
     out += "},";
     out += "\"rows\":[";
@@ -811,7 +897,6 @@ void ObservedExplorerService::Begin()
 
     MapGeometry geometry = {static_cast<uint16_t>(GRID_W), static_cast<uint16_t>(GRID_H), static_cast<uint16_t>(CELL_MM), 0, 0};
     observedMap.reset(geometry);
-    headingZeroDeg10 = globalVar_get(calcHeading);
     enterAutonomousControlMode();
     publishPose();
     basic_log_info("Observed explorer started on 100x100 grid");
@@ -835,7 +920,7 @@ void ObservedExplorerService::runTask()
         const int32_t leftCm = globalVar_get(rawDistLeft);
         const int32_t rightCm = globalVar_get(rawDistRight);
         const int32_t rearCm = globalVar_get(rawDistBack);
-        const int32_t headingDeg10 = relativeHeadingDeg10();
+        const int32_t headingDeg10 = currentControlHeadingDeg10();
         const int32_t yawRateDegPs10 = globalVar_get(cleanedGyZ);
         const int32_t lidarLeftMm = globalVar_get(rawLidarFrontLeft);
         const int32_t lidarRightMm = globalVar_get(rawLidarFrontRight);
@@ -1078,10 +1163,22 @@ String ObservedExplorerService::renderStatusJson() const
     out += "\"frontierReachable\":" + String(frontierPlan.reachable ? "true" : "false") + ",";
     out += "\"frontierBias\":" + String(frontierPlan.bias) + ",";
     out += "\"posePacked\":" + String(globalVar_get(mapObservedPosePacked)) + ",";
-    out += "\"heading\":" + String(relativeHeadingDeg10()) + ",";
+    out += "\"heading\":" + String(currentMapHeadingDeg10()) + ",";
     out += "\"controlMode\":\"" + String(controlModeLabel(remoteControl.mode)) + "\",";
     out += "\"remoteTimeoutMs\":" + String(remoteControl.timeoutMs) + ",";
     out += "\"remoteAgeMs\":" + String((xTaskGetTickCount() * portTICK_PERIOD_MS) - remoteControl.lastCommandMs) + ",";
+    out += "\"headingDeg10\":" + String(currentMapHeadingDeg10()) + ",";
+    out += "\"gyroHeadingDeg10\":" + String(wrapHeadingDeg10(globalVar_get(calcHeading))) + ",";
+    out += "\"magHeadingDeg10\":" + String(wrapHeadingDeg10(globalVar_get(calculatedMagCourse))) + ",";
+    out += "\"fusedHeadingDeg10\":" + String(wrapHeadingDeg10(globalVar_get(fuseHeadingDeg10))) + ",";
+    out += "\"magDisturbance\":" + String(globalVar_get(calculatedMagDisturbance)) + ",";
+    out += "\"expanderPresent\":" + String(globalVar_get(configExpanderPresent)) + ",";
+    out += "\"gy271Present\":" + String(globalVar_get(configGy271Present)) + ",";
+    out += "\"frontLidarPresent\":" + String(globalVar_get(configFrontLidarPresent)) + ",";
+    out += "\"cleanedAccX\":" + String(globalVar_get(cleanedAccX)) + ",";
+    out += "\"cleanedGyZ\":" + String(globalVar_get(cleanedGyZ)) + ",";
+    out += "\"calcSpeed\":" + String(globalVar_get(calcSpeed)) + ",";
+    out += "\"calcDistance\":" + String(globalVar_get(calcDistance)) + ",";
     out += "\"driverSpeed\":" + String(globalVar_get(driver_desired_speed)) + ",";
     out += "\"driverTurn\":" + String(globalVar_get(driver_desired_turn));
     out += "}";
@@ -1135,6 +1232,18 @@ String ObservedExplorerService::renderSummaryHtml() const
     html += "<li>Frontier bias: <code>" + String(frontierPlan.bias) + "</code></li>";
     html += "<li>Control mode: <code>" + String(controlModeLabel(remoteControl.mode)) + "</code></li>";
     html += "<li>Observed pose: <code>" + String(globalVar_get(mapObservedPosePacked)) + "</code></li>";
+    html += "<li>Heading deg10: <code>" + String(currentMapHeadingDeg10()) + "</code></li>";
+    html += "<li>Gyro heading deg10: <code>" + String(wrapHeadingDeg10(globalVar_get(calcHeading))) + "</code></li>";
+    html += "<li>Mag heading deg10: <code>" + String(wrapHeadingDeg10(globalVar_get(calculatedMagCourse))) + "</code></li>";
+    html += "<li>Fused heading deg10: <code>" + String(wrapHeadingDeg10(globalVar_get(fuseHeadingDeg10))) + "</code></li>";
+    html += "<li>Mag disturbance: <code>" + String(globalVar_get(calculatedMagDisturbance)) + "</code></li>";
+    html += "<li>Expander present: <code>" + String(globalVar_get(configExpanderPresent)) + "</code></li>";
+    html += "<li>GY-271 present: <code>" + String(globalVar_get(configGy271Present)) + "</code></li>";
+    html += "<li>Front lidar present: <code>" + String(globalVar_get(configFrontLidarPresent)) + "</code></li>";
+    html += "<li>Speed mm/s: <code>" + String(globalVar_get(calcSpeed)) + "</code></li>";
+    html += "<li>Distance mm: <code>" + String(globalVar_get(calcDistance)) + "</code></li>";
+    html += "<li>cleanedAccX: <code>" + String(globalVar_get(cleanedAccX)) + "</code></li>";
+    html += "<li>cleanedGyZ: <code>" + String(globalVar_get(cleanedGyZ)) + "</code></li>";
     html += "</ul>";
     xSemaphoreGive(explorerMutex);
     return html;

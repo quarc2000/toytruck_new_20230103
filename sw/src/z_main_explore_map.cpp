@@ -9,6 +9,7 @@
 #include "navigation/observed_explorer.h"
 #include "sensors/accsensor.h"
 #include "sensors/front_vl53l0x_service.h"
+#include "sensors/gy271_service.h"
 #include "sensors/usensor.h"
 #include "variables/setget.h"
 #include "atmio.h"
@@ -39,6 +40,9 @@ void setup()
 
     globalVar_init();
     basic_log_init();
+    globalVar_set(configExpanderPresent, 0);
+    globalVar_set(configGy271Present, 0);
+    globalVar_set(configFrontLidarPresent, 0);
     basic_log_info("Observed exploration boot");
     vTaskDelay(pdMS_TO_TICKS(100));
 
@@ -53,6 +57,8 @@ void setup()
 
     vTaskDelay(pdMS_TO_TICKS(100));
     accsensor.Begin();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    start_gy271_service();
     vTaskDelay(pdMS_TO_TICKS(100));
     frontLidarService.Begin();
     vTaskDelay(pdMS_TO_TICKS(100));

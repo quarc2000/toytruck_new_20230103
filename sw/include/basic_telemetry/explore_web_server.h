@@ -16,6 +16,7 @@ private:
     void startWifi();
     void registerRoutes();
     String renderIndexPage() const;
+    String renderMapPage() const;
     String getModeLabel() const;
     String getIpLabel() const;
     bool readIntArg(const char *name, int32_t &value) const;

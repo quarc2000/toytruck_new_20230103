@@ -55,14 +55,50 @@
   - made the forward phase honor that committed turn bias and use much steeper steering near a close front wall
   - verified with `pio run -e exploremap -j1`
   - uploaded successfully to `COM7`
+- Realigned the position-chain work onto a diagnostics-first approach after the live-runtime rollback:
+  - updated `.context/TASK.md`, `.context/PLAN.md`, and `.context/STATE.md` so the task no longer calls for changing the restored explorer motion source directly
+  - kept the diagnostics-only `/status` extension in tree for later upload
+- Tightened the standalone inertial bench path in `src/z_main_accsensor.cpp`:
+  - now prints sample interval
+  - now prints per-interval distance delta
+  - now accumulates provisional diagnostic `X/Y` from distance delta plus heading using `X=east`, `Y=north`
+  - verified with `pio run -e accsensor -j1`
+- Re-verified that the current diagnostics tree still builds for the live runtime:
+  - `pio run -e exploremap -j1` succeeded with the diagnostics-only `/status` extension still in tree
+- Added fused heading to `env:exploremap`:
+  - activated the GY-271 path in the runtime and moved the mux-port assumption to `3`
+  - added `fuseHeadingDeg10` as a real shared fused variable
+  - implemented slow heading fusion in `src/fusion/fusion_service.cpp`
+  - changed the explorer to consume fused heading instead of gyro-only heading
+  - changed the heading convention so `0 = magnetic north`
+  - extended `/status` and summary diagnostics with gyro, magnetic, and fused heading fields
+  - verified with `pio run -e gy271service -j1`
+  - verified with `pio run -e exploremap -j1`
+  - uploaded successfully to `COM7`
+- Decoupled optional expander-backed devices from the `exploremap` entry point:
+  - removed the temporary runtime-global `EXPANDER` dependency from the GY-271 integration
+  - made the GY-271 service probe mux plus sensor presence internally and degrade cleanly when absent
+  - kept the front `VL53L0X` service on the same startup-detect pattern
+  - added shared boolean hardware-detection variables for expander, GY-271, and front lidar presence
+  - exposed those booleans in `/status`
+  - logged detection outcomes into the in-memory basic logger
+  - verified with `pio run -e exploremap -j1`
+  - verified with `pio run -e gy271service -j1`
+  - uploaded successfully to `COM7`
 
 ## In Progress
-- Tune `env:exploremap` corner escape and steering authority from the latest truck test:
-  - explain and document the steering endpoint units so PAT steering calibration is readable
-  - keep one recovery-turn decision sticky across repeated block-recover cycles instead of re-deciding too easily from noisy side readings
-  - latest consistency pass built and uploaded to `COM7`; waiting for floor retest
+- Validate the new fused heading on the truck:
+  - compare `gyroHeadingDeg10`, `magHeadingDeg10`, and `fusedHeadingDeg10` in `/status`
+  - compare `expanderPresent`, `gy271Present`, and `frontLidarPresent` in `/status`
+  - confirm the absolute heading convention behaves as intended with `0 = magnetic north`
+  - confirm the explorer drives acceptably with fused heading as the runtime source
 
 ## Steps Remaining
+- truck-side validation:
+  - confirm GY-271 starts and produces changing magnetic course on port `3`
+  - confirm fused heading drifts materially less than raw gyro heading
+  - confirm the explorer still drives acceptably with fused heading as the runtime source
+- later resume the standalone speed and distance diagnostics work after heading fusion is stable
 - upload to the truck and validate:
   - straightness over the first `15-20 cm`
   - side-wall stand-off behavior near `10 cm`

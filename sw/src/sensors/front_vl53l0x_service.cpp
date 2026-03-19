@@ -1,6 +1,7 @@
 #include "sensors/front_vl53l0x_service.h"
 
 #include <Arduino.h>
+#include <basic_telemetry/basic_logger.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -166,11 +167,14 @@ void FrontVl53l0xService::Begin()
     globalVar_set(rawLidarFront, 0);
     globalVar_set(rawLidarFrontRight, 0);
     globalVar_set(rawLidarFrontLeft, 0);
+    globalVar_set(configFrontLidarPresent, 0);
 
     front_lidar_hw_present = deviceResponds(TCA9548_ADDR);
+    globalVar_set(configExpanderPresent, front_lidar_hw_present ? 1 : globalVar_get(configExpanderPresent));
     if (!front_lidar_hw_present)
     {
         Serial.println("Front VL53L0X expander not present, lidar path disabled");
+        basic_log_info("Front VL53L0X mux not detected, lidar path disabled");
         front_lidar_task_started = true;
         return;
     }
@@ -183,6 +187,8 @@ void FrontVl53l0xService::Begin()
     Serial.println(front_right_ready ? "OK" : "FAIL");
     Serial.print("Front VL53L0X left init: ");
     Serial.println(front_left_ready ? "OK" : "FAIL");
+    globalVar_set(configFrontLidarPresent, (front_right_ready || front_left_ready) ? 1 : 0);
+    basic_log_info(String("Front VL53L0X detected: ") + ((front_right_ready || front_left_ready) ? "yes" : "no"));
 
     xTaskCreate(
         frontLidarTask,

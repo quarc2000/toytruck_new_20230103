@@ -16,6 +16,9 @@ typedef enum {
     zeroAy,         // Lateral accelerometer zero offset in raw MPU6050 counts.
     zeroAz,         // Vertical accelerometer zero offset in raw MPU6050 counts.
     zeroGz,         // Gyro Z zero offset in raw MPU6050 counts from startup averaging.
+    configExpanderPresent, // Boolean: 1 if the I2C mux/expander path is present, else 0.
+    configGy271Present,    // Boolean: 1 if the GY-271 magnetometer path is present, else 0.
+    configFrontLidarPresent, // Boolean: 1 if the front VL53L0X path is present, else 0.
     rawDistLeft,    // Left ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistFront,   // Front ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistRight,   // Right ultrasonic distance in cm. 199 is also timeout/out-of-range.
@@ -52,6 +55,7 @@ typedef enum {
     mapProgrammedCellSizeMm,    // Programmed-map cell size in mm per cell.
     fuseForwardClear,           // Forward-clearance fusion state: -1 unknown, 0 blocked, 1 clear.
     fuseTurnBias,               // Preferred front turn bias: -1 favor left, 0 neutral/unknown, 1 favor right.
+    fuseHeadingDeg10,           // Absolute fused heading in deg * 10 where 0 = north and 900 = east.
     steerDirection,             // Steering command in the normalized range -100 to +100.
     //>>> Robot - DRIVER
     driver_driverActivity,      // Reserved driver-mode/activity code for the future Driver layer.

@@ -44,7 +44,7 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - I2C access is a known architectural concern area and should be treated as requiring explicit task-safe wrapping or serialization.
 - The current MCP23017 light path is serialized through `task_safe_wire` via `src/expander.cpp`, so lighting is now part of the same task-safe I2C discipline as the other shared-bus devices.
 - The new basic Wi-Fi debug path is intentionally separate from the existing MQTT-oriented telemetry files. It is a local-first diagnostic path, not a replacement for later Pi/MQTT integration.
-- The current direct magnetometer path is the GY-271/QMC5883L family through the expander-mux path on port `4`, with a dedicated no-mobility service test environment for bench validation.
+- The current direct magnetometer path is the GY-271/QMC5883L family through the expander-mux path on port `3`, with a dedicated no-mobility service test environment for bench validation.
 
 ## Basic Telemetry Architecture
 - `basic_telemetry` is the new minimal untethered debug path for moving-truck diagnostics.
@@ -88,11 +88,12 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - Fusion now lives under one `src/fusion` package rather than being split into separate package owners too early.
 - `src/fusion/fusion_service.cpp` owns two cadences:
   - a fast fusion task, currently `10 Hz`, for near-term clearance gating
-  - a slow fusion task, currently `1 Hz`, as the future home for pose and map fusion
+  - a slow fusion task, currently `10 Hz`, now used for heading fusion and still serving as the home for later pose and map fusion
 - Helper files under the same package hold narrow rule logic without owning task lifecycle themselves.
-- The first live `fused*` implementation now exists:
+- The live `fused*` implementation now exists:
   - `fuseForwardClear` is published by the fast fusion task in `src/fusion/fusion_service.cpp`
   - `fuseTurnBias` is also now published by the same fast fusion task
+  - `fuseHeadingDeg10` is now published by the slow fusion task using gyro heading plus GY-271 magnetic correction
   - `src/fusion/clearance_fusion.cpp` now provides helper logic only
   - current rule set is intentionally minimal and conservative:
     - `fuseForwardClear`
@@ -209,7 +210,10 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - The first pose update model is intentionally lightweight:
   - integrate movement from commanded forward or reverse motion
   - use repeated front or rear obstacle observations to shrink over-optimistic travel estimates
-  - treat heading drift as primarily a short-window gyro problem and leave stronger map alignment for later work
+  - use fused heading as the runtime-facing course:
+    - gyro provides the short-term turn delta
+    - GY-271 magnetic course provides long-term reference when not disturbed
+    - later map alignment is still expected to refine heading further
 - The current exploration runtime is still an early autonomous baseline, not a finished navigation stack. It does not yet load a real programmed map, perform robust pose alignment, or do full route planning.
 
 ## Open Questions
