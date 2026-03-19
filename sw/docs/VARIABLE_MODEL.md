@@ -132,9 +132,10 @@ The first live `fused*` variable now exists in the enum and runtime.
 | ID | Name | Tier | Meaning | Unit / Scale | Encoding in `long` | Producer | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 7001 | `mapObservedPosePacked` | map | Observed pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | `x` and `y` are grid cells, `direction` is 5-degree clockwise steps from north, `speed` is signed cm/s, `-128` per field means unknown. |
-| 7002 | `mapProgrammedPosePacked` | map | Programmed-map pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | mapping subsystem intended; not yet wired into `setget` producers | Reserved | Same packing contract as `mapObservedPosePacked`. |
-| 7010 | `mapObservedCellSizeMm` | map | Cell size used by the observed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
-| 7011 | `mapProgrammedCellSizeMm` | map | Cell size used by the programmed grid map | millimeters per cell | signed integer millimeters | mapping subsystem intended | Reserved | Mirrors `MapGeometry::cell_size_mm`. |
+| 7001 | `mapObservedPosePacked` | map | Current observed explorer pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | `src/navigation/observed_explorer.cpp` | Active, Uncertain | `env:exploremap` now publishes this live. `x` and `y` are observed-grid cells in a `100 x 100` map whose start is the center cell. `direction` is 5-degree clockwise steps from the exploration start heading, which is defined as positive `Y`. `speed` is currently the normalized commanded drive value rather than a true physical cm/s measurement, so the transport shape is active but the last byte is still semantically provisional. |
+| 7002 | `mapProgrammedPosePacked` | map | Programmed-map pose exchanged as one packed 32-bit value | packed bytes: `x`, `y`, `direction`, `speed` | one signed 32-bit integer containing four signed bytes | `src/navigation/observed_explorer.cpp` | Active, Uncertain | The first exploration runtime currently publishes this as fully unknown because there is no programmed-map alignment yet. The variable is live as a placeholder so the packed-map pose contract is already exercised. |
+| 7010 | `mapObservedCellSizeMm` | map | Cell size used by the observed grid map | millimeters per cell | signed integer millimeters | `src/navigation/observed_explorer.cpp` | Active | `env:exploremap` currently publishes `100`, matching the first `100 mm` observed-map grid. |
+| 7011 | `mapProgrammedCellSizeMm` | map | Cell size used by the programmed grid map | millimeters per cell | signed integer millimeters | `src/navigation/observed_explorer.cpp` | Active, Uncertain | The first exploration runtime mirrors the observed-grid size here as a placeholder until a real programmed-map load and alignment path exists. |
 
 ### Actuator and Driver Values
 
@@ -173,6 +174,7 @@ This difference is implementation strategy only. Both environments should keep t
 3. Decide later whether `rawGy*` should remain scaled raw-data form or be split again into register-level counts plus converted sensor-domain values.
 4. Keep the decision-ready layer under `fused*` ownership rather than letting more planner-facing meaning accumulate under `calc*`.
 5. Update any remaining debug or telemetry surfaces so they expose both raw and cleaned values where comparison is useful.
+6. Once `env:exploremap` is hardware-validated, decide whether `mapObservedPosePacked.speed` should stay as normalized drive command for lightweight telemetry or be replaced by a true speed estimate before the packed pose is treated as a navigation contract.
 
 ## Recommended Fusion Ownership
 

@@ -137,6 +137,16 @@ int fusionComputeForwardClear()
         return forwardClearHysteresis(FUSE_FORWARD_CLEAR);
     }
 
+    // In open space the front ultrasonic often ages out or reports its out-of-range sentinel
+    // before the forward-facing lidars stop seeing credible long clearance. If both lidars agree
+    // on clear and the ultrasonic is merely unknown rather than blocked, keep forward motion alive.
+    if (lidar_right_state == FUSE_FORWARD_CLEAR &&
+        lidar_left_state == FUSE_FORWARD_CLEAR &&
+        usensor_state != FUSE_FORWARD_BLOCKED)
+    {
+        return forwardClearHysteresis(FUSE_FORWARD_CLEAR);
+    }
+
     return forwardClearHysteresis(FUSE_FORWARD_UNKNOWN);
 }
 

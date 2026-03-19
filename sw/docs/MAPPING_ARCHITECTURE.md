@@ -9,7 +9,7 @@ The truck needs a map representation that is small enough to run on ESP32 firmwa
 - later alignment between planned and observed space using estimated pose, speed, direction, and fused sensor data
 - future projection from richer sensors such as VL53L5 into the same 2D navigation surface
 
-This first implementation focuses only on the map foundation, not the sensor-fusion layer.
+The map foundation now exists and the first exploration runtime is using it. The current work is still a first operational baseline rather than a finished navigation stack.
 
 ## Design Summary
 
@@ -29,6 +29,14 @@ The new code adds a `navigation` subsystem built around four core concepts:
 
 4. `CellFlags`
    A bitmapped cell encoding rather than a single-value enum.
+
+5. `ObservedExplorerService`
+   The first runtime that:
+   - keeps a live observed map
+   - projects current sensor readings into cells
+   - marks visited space
+   - searches for reachable frontier cells
+   - stops when no reachable frontier remains
 
 Position exchange is now based on one packed 32-bit integer:
 
@@ -102,19 +110,22 @@ Example memory cost:
 
 Because the code stores `cell_size_mm` in the geometry, the same subsystem can support either `100 mm` cells or `50 mm` cells without redesign.
 
-## Resolution Recommendation
+## Current Operational Grid
 
-The implementation keeps cell size configurable, but the architectural recommendation is:
+The first operational exploration runtime now uses:
 
-- start with `100 mm` cells for early path and map integration
-- keep `50 mm` as the expected higher-resolution target once sensor fusion and point-cloud projection are active
+- `100 x 100` cells
+- `100 mm` cell size
+- start in the center cell
+- initial heading aligned so the start direction is positive `Y`
 
 Reason:
 
-- `100 mm` is cheaper in RAM and easier to reason about while bringing the subsystem online
-- `50 mm` is likely better long-term for maze-scale navigation and richer range data
+- `100 mm` is coarse but robust for the current sensing and dead-reckoning uncertainty
+- it keeps RAM use acceptable on ESP32
+- it is enough to start frontier-based exploration before finer map alignment exists
 
-The code does not hardcode either choice.
+Finer grids such as `50 mm` remain a later option rather than the current baseline.
 
 ## Programmed Versus Observed Map
 
@@ -192,6 +203,11 @@ That is the intended boundary:
 - `include/navigation/sample_maps.h`
 - `src/navigation/sample_maps.cpp`
 - `src/z_main_map.cpp`
+- `include/navigation/observed_explorer.h`
+- `src/navigation/observed_explorer.cpp`
+- `include/basic_telemetry/explore_web_server.h`
+- `src/basic_telemetry/explore_web_server.cpp`
+- `src/z_main_explore_map.cpp`
 
 ## Code Walkthrough
 
@@ -234,22 +250,56 @@ This is a focused integration entry point that:
 
 It exists to make the new subsystem easier to bring up in isolation.
 
-## What This Does Not Yet Do
+## First Operational Exploration Runtime
 
-This implementation does not yet:
+`env:exploremap` is now the first runtime that uses the mapping subsystem directly.
 
-- run path planning
-- fuse sensor measurements
-- project VL53L5 points into cells
-- estimate or correct pose drift
-- merge observed and programmed maps automatically
+Current behavior:
 
-That separation is intentional. The first step is to stabilize the map model.
+- starts from the center of a `100 x 100` observed grid
+- treats the current heading at boot as "up" or positive `Y`
+- projects:
+  - front ultrasonic forward
+  - left ultrasonic to the left
+  - right ultrasonic to the right
+  - rear ultrasonic backward
+  - front-left and front-right `VL53L0X` forward from lateral offsets that match the front sensor spacing conceptually
+- marks free cells along each ray
+- marks blocked endpoints when a sensor sees an obstacle inside trusted range
+- marks the current robot cell as visited
+- searches for the nearest reachable frontier cell
+- keeps exploring while reachable frontier exists
+- stops when no reachable frontier remains
+
+It also exposes:
+
+- `/status` JSON
+- `/map` JSON
+- a simple map web page
+
+through the dedicated exploration web server.
+
+## What This Still Does Not Yet Do
+
+The current exploration runtime still does not:
+
+- load or follow a real programmed map
+- align the observed map back to a programmed map
+- run full path planning through a programmed route
+- do robust SLAM-style pose correction
+- project VL53L5 data
+- use wheel odometry
+
+The current pose correction is only a simple first pass:
+
+- integrate movement from commanded motion
+- compare repeated front or rear obstacle readings
+- shrink the traveled-distance estimate when the observed obstacle delta proves the commanded travel estimate was too optimistic
 
 ## Next Steps
 
-1. Decide the first operational grid size to use on the truck.
-2. Add a loader or generator for programmed maps beyond the built-in sample.
-3. Define the first sensor-to-cell update pipeline for the observed map.
-4. Add pose tracking and map alignment update logic.
-5. Add point-cloud projection rules for VL53L5 measurements.
+1. Hardware-validate `env:exploremap` on the truck and check map orientation from the center start.
+2. Verify that the frontier search actually consumes reachable unexplored space instead of looping locally.
+3. Improve pose correction beyond the current repeated-obstacle distance adjustment.
+4. Add a real programmed-map loading and alignment path.
+5. Add richer projection rules later for denser range sensors such as VL53L5.

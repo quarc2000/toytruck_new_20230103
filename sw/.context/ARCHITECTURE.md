@@ -156,7 +156,12 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 
 ## Planned Mapping Direction
 - The current direction is a 2D grid map where each cell corresponds to a physical square in the environment.
-- Candidate resolutions explicitly under consideration are 10 cm and 5 cm. This choice must balance path precision against ESP32 RAM and CPU limits.
+- The first operational exploration baseline now uses:
+  - `100 x 100` cells
+  - `100 mm` cell size
+  - start in the center cell
+  - initial heading aligned so the truck starts pointing toward positive `Y`
+- A finer `50 mm` grid remains a later option, not the current active baseline.
 - Cell storage should likely support bit flags rather than only a single code value, because later navigation may need to represent occupancy, certainty, observed-versus-programmed origin, path annotations, start or goal markers, and temporary navigation state at the same time.
 - The programmed map format must support at least dimensions, cell data, start location, and destination location.
 - The observed map should be a separate runtime structure that can later be updated from fused sensor inputs and aligned back to the programmed map frame.
@@ -170,6 +175,42 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - The current position-exchange direction is now grid-based rather than millimeter-based. One signed 32-bit integer is used as a packed pose container with four signed bytes: `x`, `y`, `direction`, and `speed`.
 - `-128` is the reserved unknown sentinel for each packed pose component.
 - Physical distance is derived from grid delta times the relevant map's `cell_size_mm`, rather than by exchanging millimeter position directly.
+
+## Observed Exploration Runtime
+- A dedicated exploration runtime now exists as `env:exploremap` with `src/z_main_explore_map.cpp` as the entry point.
+- This runtime is intentionally separate from `env:frontavoid` so the reactive avoidance baseline remains available as a stable test path.
+- The new runtime currently adds:
+  - `ObservedExplorerService`
+  - `ExploreWebServerService`
+- `ObservedExplorerService` owns the first operational exploration loop:
+  - reads `fuseForwardClear` and `fuseTurnBias`
+  - reads side and rear ultrasonic distances
+  - reads `calcHeading` as the local heading reference
+  - projects the front `VL53L0X` pair and ultrasonic data into an observed occupancy grid
+  - marks visited cells
+  - searches reachable frontier cells
+  - drives until no reachable frontier remains, then stops
+- The active PAT004 front `VL53L0X` pair remains:
+  - forward-facing
+  - `105 mm` center-to-center spacing
+  - expander port `1` = front-right
+  - expander port `2` = front-left
+- The exploration web path is separate from the basic telemetry page and currently serves:
+  - a simple HTML map view
+  - `/status` JSON
+  - `/map` JSON
+  - `/control` JSON plus remote-control command endpoints
+  - `/logs`
+- The exploration web/API path now also includes a first supervised remote-control layer:
+  - manual control is explicitly enabled rather than always active
+  - the explorer yields actuator ownership while remote control is active
+  - remote commands are watchdog-timed and fail safe to stop if updates expire
+  - disabling remote control returns actuator ownership to the autonomous explorer
+- The first pose update model is intentionally lightweight:
+  - integrate movement from commanded forward or reverse motion
+  - use repeated front or rear obstacle observations to shrink over-optimistic travel estimates
+  - treat heading drift as primarily a short-window gyro problem and leave stronger map alignment for later work
+- The current exploration runtime is still an early autonomous baseline, not a finished navigation stack. It does not yet load a real programmed map, perform robust pose alignment, or do full route planning.
 
 ## Open Questions
 - Which PlatformIO environment is the authoritative production target today.
