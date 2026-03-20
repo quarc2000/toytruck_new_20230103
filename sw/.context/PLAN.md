@@ -1,116 +1,51 @@
 # Plan
 
 ## Steps Completed
-- Closed the previous active explorer implementation pass at the correct boundary:
-  - `env:exploremap` exists
-  - desk-side implementation and docs are complete
-  - remaining work is hardware upload and truck validation, moved to backlog
-- Switched the active task to the ESP32-LCD-4.3 companion display client so work can continue independently of truck availability.
-- Captured the first companion-display architecture baseline and added the first board-specific scaffold:
-  - `docs/COMPANION_DISPLAY_ARCHITECTURE.md`
-  - `env:lcd43clientboot`
-  - `src/display_client/lcd43_client_bootstrap.cpp`
-- Added `docs/COMPANION_DISPLAY_API.md` as the truck-owned API handoff document for `/status`, `/map`, and `/logs`.
-- Removed the LCD experiment remnants from the truck repo while keeping the two display documents:
-  - removed `env:lcd43clientboot`
-  - removed the display bootstrap code
-  - removed `tools/pio_force_s3_toolchain.py`
-  - removed the LCD-specific section from `.context/ARCHITECTURE.md`
-  - kept `docs/COMPANION_DISPLAY_API.md`
-  - kept `docs/COMPANION_DISPLAY_ARCHITECTURE.md`
-- Improved the live `/map` API for `env:exploremap` with additive metadata:
-  - `apiVersion`
-  - `state`
-  - `frontierReachable`
-  - `frontierBias`
-  - `posePacked`
-  - `robot`
-- Added a first safe remote-control API for `env:exploremap`:
-  - new control endpoints:
-    - `GET /control`
-    - `POST /control/enable`
-    - `POST /control/drive`
-    - `POST /control/stop`
-    - `POST /control/disable`
-  - explorer actuator ownership now yields cleanly while remote control is active
-  - remote control now uses a watchdog timeout and fail-safe stop
-  - `docs/COMPANION_DISPLAY_API.md`, `docs/COMPANION_DISPLAY_ARCHITECTURE.md`, and `.context/ARCHITECTURE.md` were updated to match
-  - verified with `pio run -e exploremap -j1`
-- Tuned live `env:exploremap` behavior from truck-side testing:
-  - fixed the forward heading-hold bug where heading correction was computed but not applied to steering
-  - added immediate yaw-rate damping from `cleanedGyZ`
-  - refreshed the forward heading target at actual forward-motion start
-  - replaced neutral-only side centering with side-wall stand-off and emergency wall-avoidance correction
-  - relaxed forward-clear fusion so open space can still count as clear when both front lidars agree but the front ultrasonic is only out of range
-  - verified with `pio run -e exploremap -j1`
-- Added a wall-angle-aware forward correction pass for PAT004:
-  - increased heading and yaw correction strength for faster straightening in open runs
-  - derived a relative front-wall angle from the two forward-facing `VL53L0X` sensors using the PAT004 `105 mm` lidar spacing
-  - applied extra forward steering correction when approaching a wall at an angle, especially once the wall is inside roughly one truck length plus margin
-  - verified with `pio run -e exploremap -j1`
-  - uploaded successfully to `COM7`
-- Tightened the controller again after the next truck run:
-  - increased small-error heading response further so steering reacts earlier to sub-degree drift
-  - changed recovery handling so `committedForwardBias` now follows the actual chosen recovery turn direction
-  - made the forward phase honor that committed turn bias and use much steeper steering near a close front wall
-  - verified with `pio run -e exploremap -j1`
-  - uploaded successfully to `COM7`
-- Realigned the position-chain work onto a diagnostics-first approach after the live-runtime rollback:
-  - updated `.context/TASK.md`, `.context/PLAN.md`, and `.context/STATE.md` so the task no longer calls for changing the restored explorer motion source directly
-  - kept the diagnostics-only `/status` extension in tree for later upload
-- Tightened the standalone inertial bench path in `src/z_main_accsensor.cpp`:
-  - now prints sample interval
-  - now prints per-interval distance delta
-  - now accumulates provisional diagnostic `X/Y` from distance delta plus heading using `X=east`, `Y=north`
-  - verified with `pio run -e accsensor -j1`
-- Re-verified that the current diagnostics tree still builds for the live runtime:
-  - `pio run -e exploremap -j1` succeeded with the diagnostics-only `/status` extension still in tree
-- Added fused heading to `env:exploremap`:
-  - activated the GY-271 path in the runtime and moved the mux-port assumption to `3`
-  - added `fuseHeadingDeg10` as a real shared fused variable
-  - implemented slow heading fusion in `src/fusion/fusion_service.cpp`
-  - changed the explorer to consume fused heading instead of gyro-only heading
-  - changed the heading convention so `0 = magnetic north`
-  - extended `/status` and summary diagnostics with gyro, magnetic, and fused heading fields
-  - verified with `pio run -e gy271service -j1`
-  - verified with `pio run -e exploremap -j1`
-  - uploaded successfully to `COM7`
-- Decoupled optional expander-backed devices from the `exploremap` entry point:
-  - removed the temporary runtime-global `EXPANDER` dependency from the GY-271 integration
-  - made the GY-271 service probe mux plus sensor presence internally and degrade cleanly when absent
-  - kept the front `VL53L0X` service on the same startup-detect pattern
-  - added shared boolean hardware-detection variables for expander, GY-271, and front lidar presence
-  - exposed those booleans in `/status`
-  - logged detection outcomes into the in-memory basic logger
-  - verified with `pio run -e exploremap -j1`
-  - verified with `pio run -e gy271service -j1`
-  - uploaded successfully to `COM7`
+- Confirmed the current `Driver` implementation has grown into a large mixed-priority steering path with many constants and helper functions.
+- Confirmed user-selected simplification direction:
+  - explicit `mode`: `normal`, `recovery`
+  - explicit `state`: `idle`, `forward`, `reverse`, `forward_left`, `forward_right`
+  - explicit persistent avoidance direction: `left` or `right`
+- Captured the requirement that quick fixes are disallowed and root-cause fixes must stay in the correct control layer.
+- Captured final steering-authority clarification:
+  - max steering is allowed for any explicit turn command (planner/user), not only obstacle avoidance.
+- Locked behavior contract in architecture and task context:
+  - avoidance priority remains highest
+  - explicit turn states are separate from straight stabilization
+  - reverse steering sign inversion for same yaw intent is retained
+- Replaced `src/robots/driver.cpp` with a compact explicit mode/state implementation:
+  - `mode`: `normal` and `recovery`
+  - `state`: `idle`, `forward`, `reverse`, `forward_left`, `forward_right`
+  - single steering output path per loop, no summed competing arbitration branches
+  - wall-follow correction sign for left/right side made explicit in straight-forward state
+  - recovery keeps a persistent `avoidance_direction` and applies post-recovery forward turn boost
+  - max steering allowed in explicit turn states regardless of avoidance origin
+- Applied requested forward-speed policy cleanup in `src/robots/driver.cpp`:
+  - `DEFAULT_FORWARD_SPEED` set to `100`
+  - `FORWARD_SLOW_SPEED` set to `90`
+  - added concise constant-purpose comments to reduce ambiguity during tuning
+- Fixed forward-control regression where straight driving could enter max-turn behavior:
+  - `-1/0/1` turn bias no longer triggers explicit max-turn states
+  - max-turn states remain for explicit sharp command turns and recovery
+  - added side-wall guard steering in straight-forward state to push away from close side walls
+- Fixed first-avoidance direction and indecisive flipping:
+  - avoidance chooser now treats unknown side readings as potentially open and avoids known very-close sides
+  - added decision hysteresis (`AVOID_FLIP_DELTA_CM`) to avoid noisy side swapping
+  - replaced time-based commit with open-space-based release of committed direction
+- Fixed targeted sign-direction regressions only in the two requested algorithms:
+  - obstacle-avoidance turn-side chooser (`chooseAvoidanceDirection` plus `maybeFlipAvoidanceDirection`)
+  - close-wall away-from-wall steering (`wallFollowSteer`, `sideGuardSteer`, `sideEmergencySteer`)
 
 ## In Progress
-- Validate the new fused heading on the truck:
-  - compare `gyroHeadingDeg10`, `magHeadingDeg10`, and `fusedHeadingDeg10` in `/status`
-  - compare `expanderPresent`, `gy271Present`, and `frontLidarPresent` in `/status`
-  - confirm the absolute heading convention behaves as intended with `0 = magnetic north`
-  - confirm the explorer drives acceptably with fused heading as the runtime source
+- Verify the refactor in `env:exploremap` and upload for truck-side behavior checks.
 
 ## Steps Remaining
-- truck-side validation:
-  - confirm GY-271 starts and produces changing magnetic course on port `3`
-  - confirm fused heading drifts materially less than raw gyro heading
-  - confirm the explorer still drives acceptably with fused heading as the runtime source
-- later resume the standalone speed and distance diagnostics work after heading fusion is stable
-- upload to the truck and validate:
-  - straightness over the first `15-20 cm`
-  - side-wall stand-off behavior near `10 cm`
-  - emergency response before side distance drops below `5 cm`
-  - open-space forward motion with no nearby side walls
-  - front-wall approach angle correction in the `8 x 8 m` area
-  - corner escape persistence, including visible reverse steering and continued turn commitment into the next forward motion
-- restore compatibility of `env:exploremap` with trucks that have no IO expander and no front `VL53L0X` pair:
-  - make expander-dependent services degrade cleanly when the hardware is absent
-  - make forward-clear fusion fall back sensibly when the front lidar pair is not installed
-- decide whether the next API increment after remote control should add:
-  - a dedicated control-status endpoint
-  - explicit command source reporting in more responses
-  - a compact changed-cells or viewport path later
-- Remove stray local cache directories `p3`, `p4`, and `p5` once destructive shell commands are available outside the current blocked session policy.
+- Step 1: verify:
+  - build `env:exploremap` (done via `pio-local.ps1; pio run -e exploremap -j1`)
+  - upload and run focused live checks: (upload succeeded to `COM7` after avoidance-direction fix)
+    - left wall approach while moving forward
+    - right wall approach while moving forward
+    - corner recovery (forward-reverse-forward sequence)
+    - straight run before obstacle
+- Step 2: finalize docs:
+  - append concise summary to `.context/PROJECT_HISTORY.md`

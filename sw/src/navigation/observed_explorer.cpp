@@ -9,6 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <robots/driver.h>
 #include <variables/setget.h>
 
 namespace
@@ -114,8 +115,10 @@ constexpr int32_t SIDE_SENSOR_LATERAL_OFFSET_MM = 60;
 constexpr int32_t COMMAND_SPEED_MMPS_PER_UNIT = 3;
 constexpr int32_t POSE_LIDAR_CORRECTION_TRUST_MAX_MM = 700;
 constexpr int32_t POSE_LIDAR_DELTA_MIN_MM = 5;
-constexpr int32_t POSE_LIDAR_DELTA_MAX_MM = 80;
-constexpr int32_t POSE_LIDAR_DELTA_DEVIATION_MAX_MM = 40;
+constexpr int32_t POSE_LIDAR_DELTA_MAX_MM = 40;
+constexpr int32_t POSE_LIDAR_DELTA_DEVIATION_MAX_MM = 20;
+constexpr int32_t POSE_LIDAR_PAIR_MATCH_MAX_MM = 120;
+constexpr int32_t POSE_LIDAR_CORRECTION_MAX_YAW_DPS10 = 60;
 constexpr TickType_t LOOP_MS = 50;
 constexpr TickType_t RECOVER_STOP_MS = 200;
 constexpr TickType_t RECOVER_REVERSE_MS = 1500;
@@ -135,6 +138,7 @@ constexpr TickType_t REMOTE_CONTROL_TIMEOUT_MAX_MS = 10000;
 SemaphoreHandle_t explorerMutex = nullptr;
 Motor *drive = nullptr;
 Steer *steer = nullptr;
+Driver *driver = nullptr;
 GridMap observedMap;
 bool begun = false;
 bool finished = false;
@@ -191,14 +195,6 @@ int32_t currentMapHeadingDeg10()
 int32_t currentControlHeadingDeg10()
 {
     return wrapHeadingDeg10(globalVar_get(calcHeading));
-}
-
-int32_t wrappedHeadingErrorDeg10(int32_t target, int32_t current)
-{
-    int32_t error = target - current;
-    while (error > 1800) error -= 3600;
-    while (error < -1800) error += 3600;
-    return error;
 }
 
 CardinalDir cardinalFromHeading(int32_t headingDeg10)
@@ -526,15 +522,24 @@ void updatePose(TickType_t nowMs)
     // before later fusion or wall alignment can correct it.
     int32_t distanceMm = abs(lastCommandedSpeed) * COMMAND_SPEED_MMPS_PER_UNIT * dtMs / 1000;
     const int32_t nominalDistanceMm = distanceMm;
-    const int32_t frontLidarMm = globalVar_get(rawLidarFront);
-    const bool trustedFrontLidar = lidarKnown(frontLidarMm) && frontLidarMm <= POSE_LIDAR_CORRECTION_TRUST_MAX_MM;
+    const int32_t frontLeftLidarMm = globalVar_get(rawLidarFrontLeft);
+    const int32_t frontRightLidarMm = globalVar_get(rawLidarFrontRight);
+    const bool trustedFrontLidar =
+        lidarKnown(frontLeftLidarMm) &&
+        lidarKnown(frontRightLidarMm) &&
+        frontLeftLidarMm <= POSE_LIDAR_CORRECTION_TRUST_MAX_MM &&
+        frontRightLidarMm <= POSE_LIDAR_CORRECTION_TRUST_MAX_MM &&
+        abs(frontLeftLidarMm - frontRightLidarMm) <= POSE_LIDAR_PAIR_MATCH_MAX_MM;
+    const int32_t frontLidarMm = trustedFrontLidar ? ((frontLeftLidarMm + frontRightLidarMm) / 2) : 0;
+    const int32_t yawRateDegPs10 = abs(globalVar_get(cleanedGyZ));
     if (lastCommandedSpeed > 0 && trustedFrontLidar && lastTrustedFrontLidarMm > 0)
     {
         const int32_t delta = lastTrustedFrontLidarMm - frontLidarMm;
         const bool plausibleDelta =
             delta >= POSE_LIDAR_DELTA_MIN_MM &&
             delta <= POSE_LIDAR_DELTA_MAX_MM &&
-            abs(delta - nominalDistanceMm) <= POSE_LIDAR_DELTA_DEVIATION_MAX_MM;
+            abs(delta - nominalDistanceMm) <= POSE_LIDAR_DELTA_DEVIATION_MAX_MM &&
+            yawRateDegPs10 <= POSE_LIDAR_CORRECTION_MAX_YAW_DPS10;
         if (plausibleDelta)
         {
             distanceMm = delta;
@@ -569,16 +574,6 @@ void publishDriverCommand(ExplorerState activity, int speed, int steerCommand)
     globalVar_set(driver_driverActivity, activity);
     globalVar_set(driver_desired_speed, speed);
     globalVar_set(driver_desired_turn, steerCommand);
-}
-
-int32_t headingHoldCorrection(int32_t targetHeadingDeg10, int32_t currentHeadingDeg10)
-{
-    return max(-HEADING_HOLD_MAX, min(HEADING_HOLD_MAX, wrappedHeadingErrorDeg10(targetHeadingDeg10, currentHeadingDeg10) / HEADING_DEG10_PER_STEER));
-}
-
-int32_t yawDampingCorrection(int32_t yawRateDegPs10)
-{
-    return max(-YAW_DAMP_MAX, min(YAW_DAMP_MAX, -yawRateDegPs10 / YAW_DPS10_PER_STEER));
 }
 
 int32_t frontWallAngleDeg10(int32_t lidarLeftMm, int32_t lidarRightMm)
@@ -619,42 +614,6 @@ bool shouldKeepCommittedTurn(int32_t nearestFrontMm, int32_t leftCm, int32_t rig
     return false;
 }
 
-int32_t sideWallCorrection(int32_t leftCm, int32_t rightCm)
-{
-    int32_t correction = 0;
-    const bool leftKnown = ultrasonicKnown(leftCm);
-    const bool rightKnown = ultrasonicKnown(rightCm);
-
-    if (leftKnown && rightKnown && (leftCm <= SIDE_NEAR_FIELD_CM || rightCm <= SIDE_NEAR_FIELD_CM))
-    {
-        const int32_t delta = rightCm - leftCm;
-        if (abs(delta) >= SIDE_CENTER_DEADBAND_CM)
-        {
-            correction += max(-SIDE_CENTER_MAX, min(SIDE_CENTER_MAX, delta / SIDE_CENTER_CM_PER_STEER));
-        }
-    }
-
-    if (leftKnown && leftCm < SIDE_TARGET_CM)
-    {
-        correction += min(SIDE_AVOID_MAX, (SIDE_TARGET_CM - leftCm) * SIDE_AVOID_PER_CM);
-    }
-    if (rightKnown && rightCm < SIDE_TARGET_CM)
-    {
-        correction -= min(SIDE_AVOID_MAX, (SIDE_TARGET_CM - rightCm) * SIDE_AVOID_PER_CM);
-    }
-
-    if (leftKnown && leftCm <= SIDE_MIN_CM)
-    {
-        correction = max(correction, SIDE_AVOID_EMERGENCY);
-    }
-    if (rightKnown && rightCm <= SIDE_MIN_CM)
-    {
-        correction = min(correction, -SIDE_AVOID_EMERGENCY);
-    }
-
-    return clampSteer(correction);
-}
-
 int32_t constrainBiasAwayFromWall(int32_t bias, int32_t leftCm, int32_t rightCm)
 {
     if (ultrasonicKnown(leftCm) && leftCm <= SIDE_MIN_CM)
@@ -690,21 +649,6 @@ int32_t forwardBiasSteer(int32_t bias, int32_t nearestFrontMm, bool committedBia
     return bias > 0 ? magnitude : -magnitude;
 }
 
-int32_t enforceCommittedForwardTurn(int32_t steerCommand, int32_t bias, int32_t nearestFrontMm, bool committedBiasActive)
-{
-    if (!committedBiasActive || bias == TURN_NEUTRAL || nearestFrontMm > FRONT_WALL_TURN_COMMIT_MM)
-    {
-        return clampSteer(steerCommand);
-    }
-
-    constexpr int32_t COMMITTED_FORWARD_STEER_MIN = 75;
-    if (bias > 0)
-    {
-        return max(steerCommand, COMMITTED_FORWARD_STEER_MIN);
-    }
-    return min(steerCommand, -COMMITTED_FORWARD_STEER_MIN);
-}
-
 int32_t reverseBiasSteer(int32_t bias)
 {
     if (bias == TURN_NEUTRAL)
@@ -731,6 +675,7 @@ const char *controlModeLabel(ControlMode mode)
 
 void applyStoppedOutputs(ExplorerState activity)
 {
+    if (driver != nullptr) driver->stop();
     if (steer != nullptr) steer->direction(0);
     if (drive != nullptr) drive->driving(0);
     lastCommandedSpeed = 0;
@@ -739,6 +684,7 @@ void applyStoppedOutputs(ExplorerState activity)
 
 void enterAutonomousControlMode()
 {
+    if (driver != nullptr) driver->set_autonomous_enabled(true);
     remoteControl.mode = ControlAutonomous;
     remoteControl.speed = 0;
     remoteControl.steer = 0;
@@ -753,6 +699,7 @@ void enterAutonomousControlMode()
 
 void enterRemoteControlMode(TickType_t timeoutMs)
 {
+    if (driver != nullptr) driver->set_autonomous_enabled(false);
     remoteControl.mode = ControlRemote;
     remoteControl.speed = 0;
     remoteControl.steer = 0;
@@ -768,6 +715,7 @@ void enterRemoteControlMode(TickType_t timeoutMs)
 
 void enterRemoteTimeoutMode()
 {
+    if (driver != nullptr) driver->set_autonomous_enabled(false);
     remoteControl.mode = ControlRemoteTimedOut;
     remoteControl.speed = 0;
     remoteControl.steer = 0;
@@ -783,50 +731,6 @@ int32_t chooseForwardSpeed()
         return FORWARD_SLOW_SPEED;
     }
     return FORWARD_SPEED;
-}
-
-int32_t chooseRecoveryBias(int32_t leftCm, int32_t rightCm, int32_t previous)
-{
-    const bool leftKnown = ultrasonicKnown(leftCm);
-    const bool rightKnown = ultrasonicKnown(rightCm);
-    if (previous != TURN_NEUTRAL)
-    {
-        if (previous == TURN_LEFT)
-        {
-            if (leftKnown && leftCm <= SIDE_MIN_CM)
-            {
-                return TURN_RIGHT;
-            }
-            if (leftKnown && rightKnown && (rightCm - leftCm) >= TURN_COMMIT_FLIP_DELTA_CM)
-            {
-                return TURN_RIGHT;
-            }
-            return TURN_LEFT;
-        }
-
-        if (previous == TURN_RIGHT)
-        {
-            if (rightKnown && rightCm <= SIDE_MIN_CM)
-            {
-                return TURN_LEFT;
-            }
-            if (leftKnown && rightKnown && (rightCm - leftCm) <= -TURN_COMMIT_FLIP_DELTA_CM)
-            {
-                return TURN_LEFT;
-            }
-            return TURN_RIGHT;
-        }
-    }
-
-    if (leftKnown && rightKnown)
-    {
-        const int32_t delta = rightCm - leftCm;
-        if (delta >= SIDE_CLEAR_DELTA_CM) return TURN_RIGHT;
-        if (delta <= -SIDE_CLEAR_DELTA_CM) return TURN_LEFT;
-    }
-    else if (rightKnown && !leftKnown) return TURN_RIGHT;
-    else if (leftKnown && !rightKnown) return TURN_LEFT;
-    return previous;
 }
 
 char glyphAt(CellCoord cell)
@@ -890,8 +794,10 @@ void ObservedExplorerService::Begin()
     }
 
     explorerMutex = xSemaphoreCreateMutex();
+    if (driver == nullptr) driver = new Driver();
     if (drive == nullptr) drive = new Motor();
     if (steer == nullptr) steer = new Steer();
+    driver->Begin();
     drive->Begin();
     steer->Begin();
 
@@ -921,7 +827,6 @@ void ObservedExplorerService::runTask()
         const int32_t rightCm = globalVar_get(rawDistRight);
         const int32_t rearCm = globalVar_get(rawDistBack);
         const int32_t headingDeg10 = currentControlHeadingDeg10();
-        const int32_t yawRateDegPs10 = globalVar_get(cleanedGyZ);
         const int32_t lidarLeftMm = globalVar_get(rawLidarFrontLeft);
         const int32_t lidarRightMm = globalVar_get(rawLidarFrontRight);
         const int32_t nearestFrontMm = nearestFrontObstacleMm(lidarLeftMm, lidarRightMm, globalVar_get(rawDistFront));
@@ -978,79 +883,31 @@ void ObservedExplorerService::runTask()
         case ExplorerForward:
             if (finished)
             {
-                steer->direction(0);
-                drive->driving(0);
+                if (driver != nullptr) driver->stop();
                 lastCommandedSpeed = 0;
                 publishDriverCommand(ExplorerFinished, 0, 0);
                 break;
             }
 
-            if (forwardClear == FORWARD_CLEAR)
+            if (forwardClear == FORWARD_CLEAR || forwardClear == FORWARD_BLOCKED)
             {
+                // Explorer now sends high-level movement intent to Driver, and Driver owns
+                // steering-plus-motor execution policy including straight correction and wall hold.
                 const int32_t plannedBias = frontierPlan.bias != TURN_NEUTRAL ? frontierPlan.bias : sensorTurnBias;
-                const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
-                const bool committedBiasActive =
-                    committedForwardBias != TURN_NEUTRAL &&
-                    ((nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS ||
-                     shouldKeepCommittedTurn(nearestFrontMm, leftCm, rightCm, wallAngleDeg10));
-                const int32_t rawBias = committedBiasActive ? committedForwardBias : plannedBias;
-                const int32_t bias = constrainBiasAwayFromWall(rawBias, leftCm, rightCm);
-                if (lastCommandedSpeed <= 0)
+                const int32_t bias = constrainBiasAwayFromWall(plannedBias, leftCm, rightCm);
+                const int32_t speed = chooseForwardSpeed();
+                if (driver != nullptr)
                 {
-                    // Capture the forward heading target at the actual motion start, not only when the
-                    // state changes, so the truck resists early drift in the first few centimeters.
-                    headingTargetDeg10 = headingDeg10;
-                    phaseStartedMs = nowMs;
+                    driver->set_autonomous_enabled(true);
+                    driver->drive_relative(bias, CELL_MM, speed);
                 }
-                const int32_t headingError = wrappedHeadingErrorDeg10(headingTargetDeg10, headingDeg10);
-                const int32_t headingCorrection = headingHoldCorrection(headingTargetDeg10, headingDeg10);
-                const int32_t yawCorrection = yawDampingCorrection(yawRateDegPs10);
-                const int32_t wallAngleCorrection = max(-FRONT_WALL_STEER_MAX, min(FRONT_WALL_STEER_MAX, wallAngleDeg10 / (nearestFrontMm <= FRONT_WALL_NEAR_MM ? FRONT_WALL_DEG10_PER_STEER_NEAR : FRONT_WALL_DEG10_PER_STEER_FAR)));
-                const int32_t wallCorrection = sideWallCorrection(leftCm, rightCm);
-                if (bias == TURN_NEUTRAL && wallCorrection == 0 && abs(headingError) >= TRIM_LEARN_ERROR_DEG10)
-                {
-                    steer->nudgeNeutralTrim(headingCorrection / ADAPTIVE_TRIM_DIVISOR);
-                }
-                const int32_t steerCommand = enforceCommittedForwardTurn(
-                    forwardBiasSteer(bias, nearestFrontMm, committedBiasActive) +
-                    headingCorrection +
-                    yawCorrection +
-                    wallAngleCorrection +
-                    wallCorrection,
-                    bias,
-                    nearestFrontMm,
-                    committedBiasActive);
-                const int32_t speed = maybeApplyKick(chooseForwardSpeed(), phaseStartedMs, nowMs, longitudinalAcc);
-                steer->direction(steerCommand);
-                drive->driving(speed);
                 lastCommandedSpeed = speed;
-                publishDriverCommand(ExplorerForward, speed, steerCommand);
             }
             else
             {
-                steer->direction(0);
-                drive->driving(0);
+                if (driver != nullptr) driver->stop();
                 lastCommandedSpeed = 0;
-                publishDriverCommand(ExplorerRecoverStop, 0, 0);
-                const int32_t wallAngleDeg10 = frontWallAngleDeg10(lidarLeftMm, lidarRightMm);
-                const bool keepCommittedBias =
-                    committedForwardBias != TURN_NEUTRAL &&
-                    ((nowMs - committedBiasStartedMs) < TURN_COMMIT_HOLD_MS ||
-                     shouldKeepCommittedTurn(nearestFrontMm, leftCm, rightCm, wallAngleDeg10));
-                if (keepCommittedBias)
-                {
-                    committedReverseBias = committedForwardBias;
-                }
-                else
-                {
-                    committedReverseBias = chooseRecoveryBias(leftCm, rightCm, committedReverseBias);
-                }
-                // Keep one shared "desired yaw escape" direction across reverse and forward.
-                // Reverse and forward convert that intent to different wheel signs.
-                committedForwardBias = committedReverseBias;
-                committedBiasStartedMs = nowMs;
-                state = ExplorerRecoverStop;
-                stateStartedMs = nowMs;
+                publishDriverCommand(ExplorerForward, 0, 0);
             }
             break;
 
@@ -1175,6 +1032,8 @@ String ObservedExplorerService::renderStatusJson() const
     out += "\"expanderPresent\":" + String(globalVar_get(configExpanderPresent)) + ",";
     out += "\"gy271Present\":" + String(globalVar_get(configGy271Present)) + ",";
     out += "\"frontLidarPresent\":" + String(globalVar_get(configFrontLidarPresent)) + ",";
+    out += "\"magHeadingValid\":" + String(globalVar_get(configMagHeadingValid)) + ",";
+    out += "\"headingReady\":" + String(globalVar_get(configHeadingReady)) + ",";
     out += "\"cleanedAccX\":" + String(globalVar_get(cleanedAccX)) + ",";
     out += "\"cleanedGyZ\":" + String(globalVar_get(cleanedGyZ)) + ",";
     out += "\"calcSpeed\":" + String(globalVar_get(calcSpeed)) + ",";
@@ -1240,6 +1099,8 @@ String ObservedExplorerService::renderSummaryHtml() const
     html += "<li>Expander present: <code>" + String(globalVar_get(configExpanderPresent)) + "</code></li>";
     html += "<li>GY-271 present: <code>" + String(globalVar_get(configGy271Present)) + "</code></li>";
     html += "<li>Front lidar present: <code>" + String(globalVar_get(configFrontLidarPresent)) + "</code></li>";
+    html += "<li>Mag heading valid: <code>" + String(globalVar_get(configMagHeadingValid)) + "</code></li>";
+    html += "<li>Heading ready: <code>" + String(globalVar_get(configHeadingReady)) + "</code></li>";
     html += "<li>Speed mm/s: <code>" + String(globalVar_get(calcSpeed)) + "</code></li>";
     html += "<li>Distance mm: <code>" + String(globalVar_get(calcDistance)) + "</code></li>";
     html += "<li>cleanedAccX: <code>" + String(globalVar_get(cleanedAccX)) + "</code></li>";

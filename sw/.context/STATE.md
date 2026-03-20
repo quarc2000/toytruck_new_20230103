@@ -1,40 +1,14 @@
 # State
 
 ## Current Task Memory
-- Active subtask: validate fused heading on the truck.
-- Current findings:
-  - gyro heading path remains active as `calcHeading`
-  - GY-271 is now integrated into `env:exploremap` on expander port `3`
-  - slow fusion now publishes `fuseHeadingDeg10`
-  - the explorer now uses fused heading as its runtime heading source
-  - optional expander-backed hardware is now runtime-detected instead of being required by the entry point
-  - heading is now absolute in the magnetic frame:
-    - `0 = north`
-    - `900 = east`
-    - `1800 = south`
-    - `2700 = west`
-- User-directed next step:
-  - use magnetic as the long-term heading reference
-  - keep gyro as the short-term motion source
-  - adjust heading regularly toward magnetic in a smart way rather than replacing gyro with magnetic
-  - longer-term map-based heading correction is still planned but not part of this task
-- Latest code change now in tree:
-  - `/status` now exposes:
-    - `gyroHeadingDeg10`
-    - `magHeadingDeg10`
-    - `fusedHeadingDeg10`
-    - `magDisturbance`
-    - `expanderPresent`
-    - `gy271Present`
-    - `frontLidarPresent`
-- Verification:
-  - `pio run -e gy271service -j1` succeeded
-  - `pio run -e exploremap -j1` succeeded
-- Upload status:
-  - fused-heading `env:exploremap` build uploaded successfully to `COM7`
-  - optional-hardware detection flag build uploaded successfully to `COM7`
-- Remaining manual cleanup outside this blocked session:
-  - delete stray cache directories `p3`, `p4`, and `p5`
-- Companion-display handoff docs intentionally kept:
-  - `docs/COMPANION_DISPLAY_API.md`
-  - `docs/COMPANION_DISPLAY_ARCHITECTURE.md`
+- Active subtask:
+  - verify the new simplified `Driver` mode/state refactor on `env:exploremap` and hardware
+- Current confirmed pain point:
+  - need fresh truck-side validation after side-authoritative remap and 60 cm front-corner avoidance reset update
+- Current agreed design direction:
+  - `mode`: `normal`, `recovery`
+  - `state`: `idle`, `forward`, `reverse`, `forward_left`, `forward_right`
+  - persistent `avoidance_direction` used during recovery and immediate post-recovery
+  - explicit turn states may use max steering even when not in avoidance
+- Immediate next action:
+  - run focused floor checks on latest uploaded `env:exploremap` build (COM7): side-based avoidance direction, wall-follow precedence, and reset when turning-corner front lidar is >60 cm

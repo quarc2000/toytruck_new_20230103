@@ -14,6 +14,7 @@
 - Treat this project as embedded firmware for ESP32-based toy-truck variants; avoid assumptions that all hardware is present on every build target.
 - Preserve the current multi-entry-point workflow in `src/z_main_*.cpp` unless the task explicitly consolidates it.
 - Before changing an existing code design or design pattern, explain to the user what you want to change, why you want to change it, and ask for a decision before implementing it.
+- Quick fixes are not allowed. Do not apply broad workaround toggles to mask a local behavior bug. Fix root cause in the correct control layer, keep scope minimal, and document the rationale.
 - Avoid changing secrets, hardware IDs, or pin mappings without explicit user intent.
 - When architecture, state-machine, or hardware integration understanding changes, update `.context/ARCHITECTURE.md` and `.context/STATE.md`.
 - Append meaningful milestones or discoveries to `.context/PROJECT_HISTORY.md`.

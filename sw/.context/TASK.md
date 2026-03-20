@@ -1,20 +1,29 @@
 # Task
 
 ## Active Task
-Add a real fused heading path to `env:exploremap` by integrating the GY-271 on expander port `3`, calculating a magnetic course, and publishing a fused course that uses magnetic as the long-term reference while gyro remains the short-term motion source.
+Refactor `Driver` to a minimal, explicit control model using separate `mode` and `state`, and remove the current mixed-priority steering stack that causes left-right confusion near walls.
 
 ## Note
-This task may change the live heading source for the explorer, but it should do so conservatively:
-- keep raw gyro heading available as `calcHeading`
-- keep magnetic heading available as `calculatedMagCourse`
-- publish a fused heading as the runtime-facing course
-- prefer magnetic as the long-term reference, but reject or soften magnetic corrections when the disturbance signal says the reading is not trustworthy
-- longer-term map-based heading correction is still deferred
+Target model requested by user:
+- `mode`: `normal`, `recovery`
+- `state`: `idle`, `forward`, `reverse`, `forward_left`, `forward_right`
+- persistent `avoidance_direction`: `left` or `right`
+- clarified behavior rules from user:
+  - `forward_left` and `forward_right` are not only obstacle reactions; they are also valid commanded course-change states while navigating to goal
+  - `reverse` is not recovery-only; it must also be available for planned map-navigation maneuvers
+  - avoidance priority is always highest over course intent
+  - max steering is allowed for any explicit turning state (including user or planner requested sharp turn), not only avoidance
+  - straight-driving correction must stay small and smooth when state is straight forward travel
 
 Definition of done:
-- `env:exploremap` starts the GY-271 service on expander port `3`
-- a magnetic course is published and visible for diagnostics
-- a fused heading is published and used by the explorer instead of pure gyro heading
-- the fused heading reduces gyro drift without simply replacing gyro with magnetic
-- docs and shared-variable references are updated in the same work item
-- keep `.context/PLAN.md` and `.context/STATE.md` aligned with the task
+- `Driver` no longer relies on the current large helper- and constant-heavy arbitration path
+- steering sign behavior is explicit and direction-aware:
+  - forward near left wall => steer right
+  - forward near right wall => steer left
+  - reverse uses opposite wheel sign for same yaw intent
+- state priority is explicit:
+  - avoidance > commanded turn > straight stabilization
+- max steering is available in explicit turning states; straight mode uses smooth low-amplitude correction
+- `env:exploremap` builds and uploads
+- truck-side check confirms no "turn into wall" behavior on left and right wall tests
+- `TASK`, `PLAN`, `STATE`, and architecture notes are updated to the final model

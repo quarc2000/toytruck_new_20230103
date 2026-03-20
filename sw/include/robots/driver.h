@@ -19,6 +19,8 @@ public:
 
     void drive_relative(int turn, int distance, int speed); // turn is relative in degrees, distance is relative in mm
                                                             // will return true if successful. Failure can be caused by the turn was not achieved or distance was not achieved
+    void stop();
+    void set_autonomous_enabled(bool enabled);
 };
 
 #endif

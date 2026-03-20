@@ -65,6 +65,8 @@ Current display bootstrap client baseline:
   "expanderPresent": 1,
   "gy271Present": 1,
   "frontLidarPresent": 1,
+  "magHeadingValid": 1,
+  "headingReady": 1,
   "cleanedAccX": 0,
   "cleanedGyZ": 0,
   "calcSpeed": 0,
@@ -95,6 +97,8 @@ Current display bootstrap client baseline:
 | `expanderPresent` | integer | `1` if the runtime detected the mux or expander path, else `0` |
 | `gy271Present` | integer | `1` if the GY-271 path was detected and started, else `0` |
 | `frontLidarPresent` | integer | `1` if the front VL53L0X path was detected, else `0` |
+| `magHeadingValid` | integer | `1` after the first real magnetic course sample has been accepted from the GY-271, else `0` |
+| `headingReady` | integer | `1` if startup heading reference is accepted and exploration may begin, else `0`; when the GY-271 is present this now waits for `magHeadingValid = 1` |
 | `cleanedAccX` | integer | Current cleaned forward accelerometer value from the active MPU6050 path |
 | `cleanedGyZ` | integer | Current cleaned gyro Z value in `deg/s * 10` from the active MPU6050 path |
 | `calcSpeed` | integer | Current inertial speed estimate in `mm/s` from the active plain MPU6050 path |

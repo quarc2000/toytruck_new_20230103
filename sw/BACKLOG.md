@@ -12,6 +12,7 @@
 - Mount and integrate the tested VL53L0X multiplexer setup on the truck when that hardware becomes part of the active build.
 - Review whether `src/dynamics.cpp` is part of the active runtime and, if so, move its I2C usage onto the approved task-safe wrapper model.
 - Resume the mapping task after cleanup: review the existing mapping foundation, decide the next increment, and continue only once the active firmware baseline is clean enough that new feature work will not build on stale or misleading code paths.
+- Mapping is intentionally paused for now by user request (2026-03-19) while we rethink approach and scope. Do not resume mapping implementation until the next mapping direction is explicitly agreed.
 - Resume `env:exploremap` hardware validation. The first observed-map explorer now compiles and is documented, but still needs truck-side upload and validation: confirm center-start orientation, frontier consumption, simple pose-correction behavior, and the usefulness of the web map during real exploration.
 - Decide the first operational mapping grid resolution for the truck runtime, with explicit choice between 5 cm, 10 cm, or a hybrid approach.
 - Add a real programmed-map loading path beyond the built-in sample map, such as firmware-embedded generated data or a host-provided format.

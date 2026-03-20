@@ -22,6 +22,10 @@ constexpr uint8_t QMC5883L_STATUS_OVL = 0x02;
 constexpr uint8_t QMC5883L_STATUS_DOR = 0x04;
 constexpr uint32_t GY271_PRINT_PERIOD_MS = 3000;
 constexpr uint8_t GY271_BASELINE_SAMPLES = 8;
+constexpr TickType_t GY271_BASELINE_TIMEOUT_MS = 1500;
+constexpr TickType_t GY271_FIRST_SAMPLE_TIMEOUT_MS = 2500;
+constexpr uint8_t GY271_BOOTSTRAP_SAMPLE_RETRIES = 12;
+constexpr TickType_t GY271_BOOTSTRAP_RETRY_MS = 50;
 // Current bias for the newly installed sensor:
 // - subtract 467 from X
 // - add 347 to Y
@@ -56,6 +60,16 @@ bool magnetometerPresent()
     globalVar_set(configGy271Present, present ? 1 : 0);
     return present;
 }
+}
+
+static int computeCourseDeg10FromAdjustedXY(int16_t adjusted_x, int16_t adjusted_y)
+{
+    const float fx = static_cast<float>(adjusted_x);
+    const float fy = static_cast<float>(adjusted_y);
+    float heading_y_rad = atan2f(-fx, fy);
+    float heading_y_deg = heading_y_rad * 180.0f / 3.14159265f;
+    if (heading_y_deg < 0) heading_y_deg += 360.0f;
+    return static_cast<int>(lroundf(heading_y_deg * 10.0f));
 }
 
 static void printRegisterSnapshot(GY271 &mag)
@@ -134,15 +148,14 @@ static void gy271_task(void *pvParameters) {
     const float expected_mag_lsb = expected_mag_nt / 100000.0f * 3000.0f; // 8 G range, 3000 LSB/G
     int32_t baseline_mag_sum = 0;
     uint8_t baseline_count = 0;
-    while (baseline_count < GY271_BASELINE_SAMPLES) {
+    const TickType_t baseline_started = xTaskGetTickCount();
+    while (baseline_count < GY271_BASELINE_SAMPLES &&
+           (xTaskGetTickCount() - baseline_started) < pdMS_TO_TICKS(GY271_BASELINE_TIMEOUT_MS)) {
         int16_t bx = 0;
         int16_t by = 0;
         int16_t bz = 0;
         gy271_expander.pushChannel(GY271_SWITCH_PORT);
-        uint8_t status = 0;
-        const bool status_ok = mag.readStatus(status);
-        const bool can_read = status_ok && (((status & QMC5883L_STATUS_DRDY) != 0) || ((status & QMC5883L_STATUS_DOR) != 0));
-        const bool data_ok = can_read && mag.readDataBlock(bx, by, bz);
+        const bool data_ok = mag.readDataBlock(bx, by, bz);
         gy271_expander.popChannel();
 
         if (data_ok) {
@@ -152,7 +165,9 @@ static void gy271_task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(GY271_TASK_PERIOD_MS));
     }
 
-    const int16_t baseline_mag = static_cast<int16_t>(baseline_mag_sum / GY271_BASELINE_SAMPLES);
+    const int16_t baseline_mag = baseline_count > 0
+        ? static_cast<int16_t>(baseline_mag_sum / baseline_count)
+        : static_cast<int16_t>(lroundf(expected_mag_lsb));
     Serial.print("GY-271 baseline MAG=");
     Serial.print(baseline_mag);
     Serial.println();
@@ -162,26 +177,42 @@ static void gy271_task(void *pvParameters) {
     int16_t last_z = 0;
     uint32_t last_print_ms = 0;
     int last_trusted_course_deg10 = 0;
+    bool have_sample = false;
+    const TickType_t sample_wait_started = xTaskGetTickCount();
 
     for (;;) {
         int16_t x = last_x;
-       int16_t y = last_y;
+        int16_t y = last_y;
         int16_t z = last_z;
         gy271_expander.pushChannel(GY271_SWITCH_PORT);
         uint8_t status = 0;
         const bool status_ok = mag.readStatus(status);
-        const bool data_ready = status_ok && ((status & QMC5883L_STATUS_DRDY) != 0);
-        const bool data_overrun = status_ok && ((status & QMC5883L_STATUS_DOR) != 0);
-        const bool data_ok = (data_ready || data_overrun) && mag.readDataBlock(x, y, z);
+        const bool data_ok = mag.readDataBlock(x, y, z);
         gy271_expander.popChannel();
 
         if (data_ok) {
             last_x = x;
             last_y = y;
             last_z = z;
+            have_sample = true;
             globalVar_set(rawMagX, x);
             globalVar_set(rawMagY, y);
             globalVar_set(rawMagZ, z);
+        }
+
+        if (!have_sample) {
+            const TickType_t waited = xTaskGetTickCount() - sample_wait_started;
+            if (waited >= pdMS_TO_TICKS(GY271_FIRST_SAMPLE_TIMEOUT_MS)) {
+                globalVar_set(configGy271Present, 0);
+                globalVar_set(configMagHeadingValid, 0);
+                globalVar_set(calculatedMagDisturbance, 1);
+                basic_log_warn("GY-271 detected but no first sample, disabling magnetic startup lock");
+                vTaskDelete(nullptr);
+                return;
+            }
+            globalVar_set(calculatedMagDisturbance, 1);
+            vTaskDelay(pdMS_TO_TICKS(GY271_TASK_PERIOD_MS));
+            continue;
         }
 
         const int16_t adjusted_x = static_cast<int16_t>(x + GY271_X_BIAS_LSB);
@@ -193,12 +224,10 @@ static void gy271_task(void *pvParameters) {
         float mag_val = sqrtf(fx*fx + fy*fy + fz*fz);
         // Current heading convention uses the native sensor axes directly:
         // +Y is treated as forward and the clockwise heading from north is atan2(-X, Y).
-        float heading_y_rad = atan2f(-fx, fy);
-        float heading_y_deg = heading_y_rad * 180.0f / 3.14159265f;
-        if (heading_y_deg < 0) heading_y_deg += 360.0f;
-        const int course_y_deg10 = (int)lroundf(heading_y_deg * 10.0f);
+        const int course_y_deg10 = computeCourseDeg10FromAdjustedXY(adjusted_x, adjusted_y);
         last_trusted_course_deg10 = course_y_deg10;
         globalVar_set(calculatedMagCourse, last_trusted_course_deg10);
+        globalVar_set(configMagHeadingValid, 1);
 
         const float mag_deviation = expected_mag_lsb > 1.0f ? fabsf(mag_val - expected_mag_lsb) / expected_mag_lsb : 0.0f;
         const bool overflow = status_ok && ((status & QMC5883L_STATUS_OVL) != 0);
@@ -246,6 +275,7 @@ void start_gy271_service() {
     globalVar_set(calculatedMagCourse, 0);
     globalVar_set(calculatedMagDisturbance, 1);
     globalVar_set(configGy271Present, 0);
+    globalVar_set(configMagHeadingValid, 0);
 
     if (!magnetometerPresent()) {
         Serial.println("GY-271 path not present, magnetometer disabled");
@@ -253,6 +283,51 @@ void start_gy271_service() {
         gy271_task_started = true;
         return;
     }
+
+    // Bootstrap synchronously before spawning the task so startup gating uses a
+    // real first sample, not only an address probe.
+    GY271 bootstrapMag(GY271_I2C_ADDR);
+    gy271_expander.pushChannel(GY271_SWITCH_PORT);
+    const bool begin_ok = bootstrapMag.begin();
+    gy271_expander.popChannel();
+    if (!begin_ok) {
+        globalVar_set(configGy271Present, 0);
+        basic_log_warn("GY-271 detected but bootstrap begin failed on mux port 3");
+        gy271_task_started = true;
+        return;
+    }
+
+    bool first_sample_ok = false;
+    int16_t sx = 0;
+    int16_t sy = 0;
+    int16_t sz = 0;
+    for (uint8_t i = 0; i < GY271_BOOTSTRAP_SAMPLE_RETRIES; ++i) {
+        gy271_expander.pushChannel(GY271_SWITCH_PORT);
+        first_sample_ok = bootstrapMag.readDataBlock(sx, sy, sz);
+        gy271_expander.popChannel();
+        if (first_sample_ok) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(GY271_BOOTSTRAP_RETRY_MS));
+    }
+    if (!first_sample_ok) {
+        globalVar_set(configGy271Present, 0);
+        globalVar_set(configMagHeadingValid, 0);
+        basic_log_warn("GY-271 detected but bootstrap first sample failed on mux port 3");
+        gy271_task_started = true;
+        return;
+    }
+
+    const int16_t adjusted_x = static_cast<int16_t>(sx + GY271_X_BIAS_LSB);
+    const int16_t adjusted_y = static_cast<int16_t>(sy + GY271_Y_BIAS_LSB);
+    globalVar_set(rawMagX, sx);
+    globalVar_set(rawMagY, sy);
+    globalVar_set(rawMagZ, sz);
+    globalVar_set(calculatedMagCourse, computeCourseDeg10FromAdjustedXY(adjusted_x, adjusted_y));
+    globalVar_set(calculatedMagDisturbance, 0);
+    globalVar_set(configGy271Present, 1);
+    globalVar_set(configMagHeadingValid, 1);
+    basic_log_info("GY-271 bootstrap first sample accepted on mux port 3");
 
     xTaskCreatePinnedToCore(gy271_task, "gy271_task", 4096, NULL, 1, NULL, 1);
     gy271_task_started = true;

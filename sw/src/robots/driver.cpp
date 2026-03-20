@@ -1,488 +1,803 @@
 #include <robots/driver.h>
+
 #include <actuators/motor.h>
 #include <actuators/steer.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <variables/setget.h>
 
 namespace
 {
-enum DriverRuntimeState
+constexpr int32_t TURN_LEFT = -1;
+constexpr int32_t TURN_NEUTRAL = 0;
+constexpr int32_t TURN_RIGHT = 1;
+// Empirical steering sign map for this truck:
+// negative command steers right, positive command steers left.
+constexpr int32_t STEER_SIGN_AWAY_FROM_LEFT_SIDE = -1;
+constexpr int32_t STEER_SIGN_AWAY_FROM_RIGHT_SIDE = 1;
+
+// Forward-clear fusion values.
+constexpr int32_t FORWARD_CLEAR = 1;
+constexpr int32_t FORWARD_BLOCKED = 0;
+constexpr int32_t DIST_UNKNOWN_CM = 199;
+
+// Nominal speed policy in normalized motor command units.
+constexpr int32_t DEFAULT_FORWARD_SPEED = 100;
+constexpr int32_t DEFAULT_REVERSE_SPEED = -90;
+constexpr int32_t FORWARD_SLOWDOWN_CM = 30;
+constexpr int32_t FORWARD_SLOW_SPEED = 90;
+
+// Straight-driving stabilization gains.
+constexpr int32_t STRAIGHT_HEADING_GAIN_DEG10 = 3;
+constexpr int32_t STRAIGHT_YAW_GAIN_DPS10 = 10;
+constexpr int32_t STRAIGHT_MAX_STEER = 35;
+
+// Explicit turning authority (used for commanded and avoidance turns).
+constexpr int32_t TURN_MAX_STEER = 100;
+constexpr int32_t TURN_ASSIST_STEER = 20;
+constexpr int32_t TURN_BIAS_STEER = 25;
+
+// Side-wall hold behavior while driving straight.
+constexpr int32_t WALL_ENTRY_CM = 30;
+constexpr int32_t WALL_RELEASE_CM = 45;
+constexpr int32_t WALL_TARGET_CM = 30;
+constexpr int32_t WALL_DEADBAND_CM = 2;
+constexpr int32_t WALL_GAIN_PER_CM = 5;
+constexpr int32_t WALL_MAX_STEER = 60;
+constexpr int32_t WALL_EMERGENCY_CM = 8;
+constexpr int32_t SIDE_GUARD_CM = 30;
+constexpr int32_t SIDE_GUARD_GAIN_PER_CM = 4;
+constexpr int32_t SIDE_GUARD_MAX_STEER = 60;
+constexpr int32_t NARROW_PASSAGE_WIDTH_CM = 70;
+constexpr int32_t NARROW_CENTER_GAIN_PER_CM = 4;
+constexpr int32_t NARROW_CENTER_MAX_STEER = 45;
+
+// Hard safety thresholds for reverse and close-front blocking.
+constexpr int32_t REVERSE_BLOCK_CM = 18;
+constexpr int32_t FRONT_HARD_BLOCK_CM = 12;
+constexpr int32_t FRONT_MIN_VALID_MM = 40;
+constexpr int32_t FRONT_HARD_BLOCK_MM = 140;
+constexpr int32_t AVOID_FLIP_DELTA_CM = 12;
+constexpr int32_t AVOID_IMPOSSIBLE_SIDE_CM = 10;
+constexpr int32_t AVOID_RESET_FRONT_CORNER_MM = 500;
+constexpr int32_t AVOID_RESET_CLEAR_CYCLES = 2;
+
+// Runtime timing for control loop and recovery behavior.
+constexpr TickType_t LOOP_MS = 80;
+constexpr TickType_t RECOVERY_REVERSE_MS = 1200;
+
+enum DriverMode
 {
-    DRIVER_IDLE = 0,
-    DRIVER_FORWARD = 1,
-    DRIVER_RECOVER_STOP = 2,
-    DRIVER_RECOVER_REVERSE = 3,
-    DRIVER_RECOVER_PAUSE = 4
+    DriverModeNormal = 0,
+    DriverModeRecovery = 1
 };
 
-static constexpr int32_t FUSE_FORWARD_CLEAR = 1;
-static constexpr int32_t FUSE_FORWARD_BLOCKED = 0;
-static constexpr int32_t FORWARD_DISTANCE_UNKNOWN_CM = 199;
-static constexpr int32_t TURN_LEFT = -1;
-static constexpr int32_t TURN_NEUTRAL = 0;
-static constexpr int32_t TURN_RIGHT = 1;
-static constexpr int32_t FORWARD_SPEED = 100;
-static constexpr int32_t FORWARD_SLOW_SPEED = 90;
-static constexpr int32_t FORWARD_SLOWDOWN_CM = 30;
-static constexpr int32_t REVERSE_SPEED = -100;
-static constexpr int32_t MOTOR_KICK_SPEED = 100;
-static constexpr int32_t FORWARD_STEER_BIAS = 30;
-static constexpr int32_t REVERSE_STEER_BIAS = 65;
-static constexpr int32_t HEADING_HOLD_MAX_STEER = 35;
-static constexpr int32_t HEADING_HOLD_DEG10_PER_STEER = 6;
-static constexpr int32_t ADAPTIVE_TRIM_DIVISOR = 8;
-static constexpr int32_t SIDE_CENTER_MAX_STEER = 20;
-static constexpr int32_t SIDE_CENTER_CM_PER_STEER = 2;
-static constexpr int32_t SIDE_CENTER_DEADBAND_CM = 8;
-static constexpr int32_t REVERSE_BLOCK_CM = 20;
-static constexpr int32_t BLOCK_CONFIRM_CYCLES = 3;
-static constexpr int32_t CLEAR_CONFIRM_CYCLES = 4;
-static constexpr int32_t SIDE_CLEAR_DELTA_CM = 12;
-static constexpr TickType_t TURN_COMMIT_HOLD_MS = 8000;
-static constexpr TickType_t FORWARD_REESTABLISHED_MS = 5000;
-static constexpr TickType_t MIN_FORWARD_PULSE_MS = 500;
-static constexpr TickType_t MIN_REVERSE_PULSE_MS = 700;
-static constexpr TickType_t DRIVER_PERIOD_MS = 100;
-static constexpr TickType_t RECOVER_STOP_MS = 200;
-static constexpr TickType_t RECOVER_REVERSE_MS = 1500;
-static constexpr TickType_t RECOVER_PAUSE_MS = 400;
-static constexpr TickType_t MOTOR_KICK_MS = 100;
-static constexpr TickType_t MOTOR_REKICK_MS = 200;
-static constexpr int32_t MOTION_ACCEL_THRESHOLD_COUNTS = 40;
-static constexpr int32_t TRIM_LEARN_HEADING_DEADBAND_DEG10 = 40;
+enum DriverState
+{
+    DriverStateIdle = 0,
+    DriverStateForward = 1,
+    DriverStateReverse = 2,
+    DriverStateForwardLeft = 3,
+    DriverStateForwardRight = 4
+};
+
+enum WallSide
+{
+    WallNone = 0,
+    WallLeft = 1,
+    WallRight = 2
+};
+
+struct DriverControlState
+{
+    bool autonomous_enabled;
+    bool navigation_command_mode;
+    int32_t requested_turn;
+    int32_t requested_distance;
+    int32_t requested_speed;
+};
 
 Motor *drive = nullptr;
 Steer *steer = nullptr;
 bool driver_task_started = false;
+SemaphoreHandle_t driver_control_mutex = nullptr;
+DriverControlState driver_control = {true, false, 0, 0, 0};
 int32_t requested_direction = 0;
-int32_t requested_turn = 0;
-int32_t requested_distance = 0;
-int32_t requested_speed = 0;
 
-int commandSteerFromBias(int32_t turn_bias, int magnitude)
+int32_t clampSteer(int32_t value)
 {
-    if (turn_bias > 0)
+    if (value > 100)
+    {
+        return 100;
+    }
+    if (value < -100)
+    {
+        return -100;
+    }
+    return value;
+}
+
+int32_t clampSpeed(int32_t value)
+{
+    if (value > 100)
+    {
+        return 100;
+    }
+    if (value < -100)
+    {
+        return -100;
+    }
+    return value;
+}
+
+int32_t wrapHeadingErrorDeg10(int32_t target_deg10, int32_t current_deg10)
+{
+    int32_t err = target_deg10 - current_deg10;
+    while (err > 1800)
+    {
+        err -= 3600;
+    }
+    while (err < -1800)
+    {
+        err += 3600;
+    }
+    return err;
+}
+
+bool ultrasonicKnown(int32_t cm)
+{
+    return cm > 0 && cm < DIST_UNKNOWN_CM;
+}
+
+bool lidarKnown(int32_t mm)
+{
+    return mm >= FRONT_MIN_VALID_MM && mm < 2999;
+}
+
+bool frontHardBlocked(int32_t front_cm, int32_t lidar_left_mm, int32_t lidar_right_mm)
+{
+    if (ultrasonicKnown(front_cm) && front_cm <= FRONT_HARD_BLOCK_CM)
+    {
+        return true;
+    }
+    if (lidarKnown(lidar_left_mm) && lidar_left_mm <= FRONT_HARD_BLOCK_MM)
+    {
+        return true;
+    }
+    if (lidarKnown(lidar_right_mm) && lidar_right_mm <= FRONT_HARD_BLOCK_MM)
+    {
+        return true;
+    }
+    return false;
+}
+
+int32_t navTurnToBias(int32_t turn_command)
+{
+    if (turn_command > 0)
+    {
+        return TURN_RIGHT;
+    }
+    if (turn_command < 0)
+    {
+        return TURN_LEFT;
+    }
+    return TURN_NEUTRAL;
+}
+
+int32_t biasToForwardSteer(int32_t bias, int32_t magnitude)
+{
+    if (bias == TURN_RIGHT)
     {
         return magnitude;
     }
-
-    if (turn_bias < 0)
+    if (bias == TURN_LEFT)
     {
         return -magnitude;
+    }
+    return 0;
+}
+
+int32_t biasToReverseSteer(int32_t bias, int32_t magnitude)
+{
+    // Same yaw intent must flip wheel sign in reverse.
+    return -biasToForwardSteer(bias, magnitude);
+}
+
+int32_t biasFromSteerSign(int32_t steer_sign)
+{
+    return (steer_sign >= 0) ? TURN_RIGHT : TURN_LEFT;
+}
+
+int32_t steerAwayFromLeftSide(int32_t magnitude)
+{
+    return STEER_SIGN_AWAY_FROM_LEFT_SIDE * magnitude;
+}
+
+int32_t steerAwayFromRightSide(int32_t magnitude)
+{
+    return STEER_SIGN_AWAY_FROM_RIGHT_SIDE * magnitude;
+}
+
+int32_t chooseAvoidanceDirection(int32_t left_cm, int32_t right_cm, int32_t previous)
+{
+    const bool left_known = ultrasonicKnown(left_cm);
+    const bool right_known = ultrasonicKnown(right_cm);
+
+    // Select avoidance direction purely from side clearances.
+    if (left_known && left_cm <= AVOID_IMPOSSIBLE_SIDE_CM)
+    {
+        return biasFromSteerSign(steerAwayFromLeftSide(1));
+    }
+    if (right_known && right_cm <= AVOID_IMPOSSIBLE_SIDE_CM)
+    {
+        return biasFromSteerSign(steerAwayFromRightSide(1));
+    }
+
+    // Unknown/out-of-range side often means open space in this setup.
+    // Prefer the known open side only when it is decisively better.
+    if (!left_known && right_known)
+    {
+        return biasFromSteerSign(steerAwayFromRightSide(1));
+    }
+    if (!right_known && left_known)
+    {
+        return biasFromSteerSign(steerAwayFromLeftSide(1));
+    }
+
+    if (left_known && right_known)
+    {
+        const int32_t delta = right_cm - left_cm;
+        if (delta >= AVOID_FLIP_DELTA_CM)
+        {
+            return biasFromSteerSign(steerAwayFromLeftSide(1));
+        }
+        if (delta <= -AVOID_FLIP_DELTA_CM)
+        {
+            return biasFromSteerSign(steerAwayFromRightSide(1));
+        }
+    }
+
+    return previous;
+}
+
+int32_t maybeFlipAvoidanceDirection(int32_t current_direction, int32_t left_cm, int32_t right_cm)
+{
+    const bool left_known = ultrasonicKnown(left_cm);
+    const bool right_known = ultrasonicKnown(right_cm);
+    const int32_t avoid_left_side_direction = biasFromSteerSign(steerAwayFromLeftSide(1));
+    const int32_t avoid_right_side_direction = biasFromSteerSign(steerAwayFromRightSide(1));
+
+    // Keep committed direction unless that path becomes impossible.
+    if (current_direction == avoid_left_side_direction)
+    {
+        // Avoid-left means steering away from left side toward right path.
+        // Flip only if right path becomes impossible.
+        if (right_known && right_cm <= AVOID_IMPOSSIBLE_SIDE_CM)
+        {
+            return avoid_right_side_direction;
+        }
+        return avoid_left_side_direction;
+    }
+
+    if (current_direction == avoid_right_side_direction)
+    {
+        // Avoid-right means steering away from right side toward left path.
+        // Flip only if left path becomes impossible.
+        if (left_known && left_cm <= AVOID_IMPOSSIBLE_SIDE_CM)
+        {
+            return avoid_left_side_direction;
+        }
+        return avoid_right_side_direction;
+    }
+
+    return chooseAvoidanceDirection(left_cm, right_cm, avoid_right_side_direction);
+}
+
+int32_t narrowPassageCenterSteer(int32_t left_cm, int32_t right_cm)
+{
+    if (!ultrasonicKnown(left_cm) || !ultrasonicKnown(right_cm))
+    {
+        return 0;
+    }
+    if ((left_cm + right_cm) > NARROW_PASSAGE_WIDTH_CM)
+    {
+        return 0;
+    }
+    const int32_t delta = right_cm - left_cm;
+    return clampSteer(max(-NARROW_CENTER_MAX_STEER, min(NARROW_CENTER_MAX_STEER, delta * NARROW_CENTER_GAIN_PER_CM)));
+}
+
+int32_t turningCornerLidarMmForDirection(int32_t direction, int32_t lidar_left_mm, int32_t lidar_right_mm)
+{
+    if (direction == TURN_LEFT) return lidar_left_mm;
+    if (direction == TURN_RIGHT) return lidar_right_mm;
+    return 0;
+}
+
+int32_t chooseForwardSpeed(int32_t requested_speed, int32_t front_cm)
+{
+    if (requested_speed != 0)
+    {
+        return clampSpeed(requested_speed);
+    }
+
+    if (ultrasonicKnown(front_cm) && front_cm <= FORWARD_SLOWDOWN_CM)
+    {
+        return FORWARD_SLOW_SPEED;
+    }
+
+    return DEFAULT_FORWARD_SPEED;
+}
+
+int32_t computeStraightSteer(int32_t heading_target_deg10, int32_t heading_deg10, int32_t yaw_degps10)
+{
+    const int32_t heading_term = wrapHeadingErrorDeg10(heading_target_deg10, heading_deg10) / STRAIGHT_HEADING_GAIN_DEG10;
+    const int32_t yaw_term = -yaw_degps10 / STRAIGHT_YAW_GAIN_DPS10;
+    return max(-STRAIGHT_MAX_STEER, min(STRAIGHT_MAX_STEER, heading_term + yaw_term));
+}
+
+void maybeCaptureWall(int32_t left_cm, int32_t right_cm, WallSide &side, int32_t &target_cm)
+{
+    if (side != WallNone)
+    {
+        return;
+    }
+
+    const bool left_near = ultrasonicKnown(left_cm) && left_cm <= WALL_ENTRY_CM;
+    const bool right_near = ultrasonicKnown(right_cm) && right_cm <= WALL_ENTRY_CM;
+
+    if (left_near && (!right_near || left_cm <= right_cm))
+    {
+        side = WallLeft;
+        target_cm = WALL_TARGET_CM;
+        return;
+    }
+
+    if (right_near)
+    {
+        side = WallRight;
+        target_cm = WALL_TARGET_CM;
+    }
+}
+
+void maybeReleaseWall(int32_t left_cm, int32_t right_cm, WallSide &side, int32_t &target_cm)
+{
+    if (side == WallLeft)
+    {
+        if (!ultrasonicKnown(left_cm) || left_cm > WALL_RELEASE_CM)
+        {
+            side = WallNone;
+            target_cm = 0;
+        }
+    }
+    else if (side == WallRight)
+    {
+        if (!ultrasonicKnown(right_cm) || right_cm > WALL_RELEASE_CM)
+        {
+            side = WallNone;
+            target_cm = 0;
+        }
+    }
+}
+
+int32_t wallFollowSteer(int32_t left_cm, int32_t right_cm, WallSide side, int32_t target_cm)
+{
+    if (side == WallLeft && ultrasonicKnown(left_cm))
+    {
+        const int32_t error_cm = left_cm - target_cm;
+        if (abs(error_cm) <= WALL_DEADBAND_CM)
+        {
+            return 0;
+        }
+        if (error_cm > 0)
+        {
+            // Too far from left wall: steer toward left wall.
+            return clampSteer(-steerAwayFromLeftSide(min(WALL_MAX_STEER, error_cm * WALL_GAIN_PER_CM)));
+        }
+        // Too close to left wall: steer away from left wall.
+        return clampSteer(steerAwayFromLeftSide(min(WALL_MAX_STEER, (-error_cm) * WALL_GAIN_PER_CM)));
+    }
+
+    if (side == WallRight && ultrasonicKnown(right_cm))
+    {
+        const int32_t error_cm = right_cm - target_cm;
+        if (abs(error_cm) <= WALL_DEADBAND_CM)
+        {
+            return 0;
+        }
+        if (error_cm > 0)
+        {
+            // Too far from right wall: steer toward right wall.
+            return clampSteer(-steerAwayFromRightSide(min(WALL_MAX_STEER, error_cm * WALL_GAIN_PER_CM)));
+        }
+        // Too close to right wall: steer away from right wall.
+        return clampSteer(steerAwayFromRightSide(min(WALL_MAX_STEER, (-error_cm) * WALL_GAIN_PER_CM)));
     }
 
     return 0;
 }
 
-void publishDriverCommand(DriverRuntimeState activity, int speed, int steer_command)
+int32_t sideEmergencySteer(int32_t left_cm, int32_t right_cm)
 {
-    globalVar_set(driver_driverActivity, activity);
+    if (ultrasonicKnown(left_cm) && left_cm <= WALL_EMERGENCY_CM)
+    {
+        return steerAwayFromLeftSide(TURN_MAX_STEER);
+    }
+    if (ultrasonicKnown(right_cm) && right_cm <= WALL_EMERGENCY_CM)
+    {
+        return steerAwayFromRightSide(TURN_MAX_STEER);
+    }
+    return 0;
+}
+
+int32_t sideGuardSteer(int32_t left_cm, int32_t right_cm)
+{
+    int32_t steer = 0;
+
+    if (ultrasonicKnown(left_cm) && left_cm < SIDE_GUARD_CM)
+    {
+        const int32_t deficit_cm = SIDE_GUARD_CM - left_cm;
+        steer += steerAwayFromLeftSide(min(SIDE_GUARD_MAX_STEER, deficit_cm * SIDE_GUARD_GAIN_PER_CM));
+    }
+    if (ultrasonicKnown(right_cm) && right_cm < SIDE_GUARD_CM)
+    {
+        const int32_t deficit_cm = SIDE_GUARD_CM - right_cm;
+        steer += steerAwayFromRightSide(min(SIDE_GUARD_MAX_STEER, deficit_cm * SIDE_GUARD_GAIN_PER_CM));
+    }
+
+    return clampSteer(steer);
+}
+
+DriverControlState readDriverControl()
+{
+    if (driver_control_mutex == nullptr)
+    {
+        return driver_control;
+    }
+
+    xSemaphoreTake(driver_control_mutex, portMAX_DELAY);
+    DriverControlState snapshot = driver_control;
+    xSemaphoreGive(driver_control_mutex);
+    return snapshot;
+}
+
+void publishDriverCommand(DriverMode mode, DriverState state, int32_t speed, int32_t steer_command)
+{
+    // Keep one compact activity code for diagnostics: 10*mode + state.
+    globalVar_set(driver_driverActivity, mode * 10 + state);
     globalVar_set(driver_desired_speed, speed);
     globalVar_set(driver_desired_turn, steer_command);
 }
 
-bool ultrasonicSideKnown(int32_t distance_cm)
-{
-    return distance_cm > 0 && distance_cm < 199;
-}
-
-int chooseRecoveryBiasFromSides(int32_t left_cm, int32_t right_cm, int32_t previous_bias)
-{
-    const bool left_known = ultrasonicSideKnown(left_cm);
-    const bool right_known = ultrasonicSideKnown(right_cm);
-
-    if (left_known && right_known)
-    {
-        const int32_t side_delta_cm = right_cm - left_cm;
-        if (side_delta_cm >= SIDE_CLEAR_DELTA_CM)
-        {
-            return TURN_RIGHT;
-        }
-
-        if (side_delta_cm <= -SIDE_CLEAR_DELTA_CM)
-        {
-            return TURN_LEFT;
-        }
-    }
-    else if (right_known && !left_known)
-    {
-        return TURN_RIGHT;
-    }
-    else if (left_known && !right_known)
-    {
-        return TURN_LEFT;
-    }
-
-    return previous_bias;
-}
-
-int32_t clampSteerCommand(int32_t steer_command)
-{
-    if (steer_command > 100)
-    {
-        return 100;
-    }
-
-    if (steer_command < -100)
-    {
-        return -100;
-    }
-
-    return steer_command;
-}
-
-int32_t wrappedHeadingErrorDeg10(int32_t target_heading_deg10, int32_t current_heading_deg10)
-{
-    int32_t error_deg10 = target_heading_deg10 - current_heading_deg10;
-    while (error_deg10 > 1800)
-    {
-        error_deg10 -= 3600;
-    }
-    while (error_deg10 < -1800)
-    {
-        error_deg10 += 3600;
-    }
-    return error_deg10;
-}
-
-int32_t headingHoldSteerCorrection(int32_t target_heading_deg10, int32_t current_heading_deg10)
-{
-    const int32_t heading_error_deg10 = wrappedHeadingErrorDeg10(target_heading_deg10, current_heading_deg10);
-    const int32_t correction = heading_error_deg10 / HEADING_HOLD_DEG10_PER_STEER;
-    return max(-HEADING_HOLD_MAX_STEER, min(HEADING_HOLD_MAX_STEER, correction));
-}
-
-int32_t sideCenterSteerCorrection(int32_t left_cm, int32_t right_cm)
-{
-    if (!ultrasonicSideKnown(left_cm) || !ultrasonicSideKnown(right_cm))
-    {
-        return 0;
-    }
-
-    const int32_t side_delta_cm = right_cm - left_cm;
-    if (abs(side_delta_cm) < SIDE_CENTER_DEADBAND_CM)
-    {
-        return 0;
-    }
-    const int32_t correction = side_delta_cm / SIDE_CENTER_CM_PER_STEER;
-    return max(-SIDE_CENTER_MAX_STEER, min(SIDE_CENTER_MAX_STEER, correction));
-}
-
-int32_t maybeApplyLaunchKick(int32_t requested_speed, TickType_t phase_started_ms, TickType_t now_ms, int32_t longitudinal_acc_counts)
-{
-    if (requested_speed == 0)
-    {
-        return 0;
-    }
-
-    if (now_ms - phase_started_ms < MOTOR_KICK_MS)
-    {
-        return requested_speed > 0 ? MOTOR_KICK_SPEED : -MOTOR_KICK_SPEED;
-    }
-
-    if (now_ms - phase_started_ms < MOTOR_REKICK_MS &&
-        abs(longitudinal_acc_counts) < MOTION_ACCEL_THRESHOLD_COUNTS)
-    {
-        return requested_speed > 0 ? MOTOR_KICK_SPEED : -MOTOR_KICK_SPEED;
-    }
-
-    return requested_speed;
-}
-
-int32_t chooseForwardDriveSpeed(int32_t front_distance_cm)
-{
-    if (front_distance_cm > 0 &&
-        front_distance_cm < FORWARD_DISTANCE_UNKNOWN_CM &&
-        front_distance_cm <= FORWARD_SLOWDOWN_CM)
-    {
-        return FORWARD_SLOW_SPEED;
-    }
-
-    return FORWARD_SPEED;
-}
 } // namespace
 
-Driver::Driver(){
-
+Driver::Driver()
+{
 }
 
-void Driver::Begin(){
-  if (driver_task_started)
-  {
-    return;
-  }
+void Driver::Begin()
+{
+    if (driver_task_started)
+    {
+        return;
+    }
 
-  if (drive == nullptr)
-  {
-    drive = new Motor();
-  }
-  drive->Begin();
+    if (driver_control_mutex == nullptr)
+    {
+        driver_control_mutex = xSemaphoreCreateMutex();
+    }
 
-  if (steer == nullptr)
-  {
-    steer = new Steer();
-  }
-  steer->Begin();
+    if (drive == nullptr)
+    {
+        drive = new Motor();
+    }
+    drive->Begin();
 
-  publishDriverCommand(DRIVER_IDLE, 0, 0);
-  xTaskCreate(
-      driverTask,
-      "driverTask",
-      3000,
-      NULL,
-      1,
-      NULL);
-  driver_task_started = true;
+    if (steer == nullptr)
+    {
+        steer = new Steer();
+    }
+    steer->Begin();
+
+    publishDriverCommand(DriverModeNormal, DriverStateIdle, 0, 0);
+    xTaskCreate(driverTask, "driverTask", 3000, NULL, 1, NULL);
+    driver_task_started = true;
 }
 
-void Driver::drive_absolute(int direction, int distance, int speed){ // direction is the direction since start in degrees....will drift. Distance measured in mm (is relative)
-   requested_direction = direction;
-   requested_distance = distance;
-   requested_speed = speed;
-   globalVar_set(driver_desired_direction, direction);
-   globalVar_set(driver_desired_distance, distance);
-   globalVar_set(driver_desired_speed, speed);
+void Driver::drive_absolute(int direction, int distance, int speed)
+{
+    requested_direction = direction;
+    if (driver_control_mutex != nullptr)
+    {
+        xSemaphoreTake(driver_control_mutex, portMAX_DELAY);
+        driver_control.navigation_command_mode = true;
+        driver_control.requested_turn = direction;
+        driver_control.requested_distance = distance;
+        driver_control.requested_speed = clampSpeed(speed);
+        xSemaphoreGive(driver_control_mutex);
+    }
+
+    globalVar_set(driver_desired_direction, direction);
+    globalVar_set(driver_desired_distance, distance);
+    globalVar_set(driver_desired_speed, clampSpeed(speed));
 }
 
-void Driver::drive_relative(int turn, int distance, int speed){
-    requested_turn = turn;
-    requested_distance = distance;
-    requested_speed = speed;
+void Driver::drive_relative(int turn, int distance, int speed)
+{
+    if (driver_control_mutex != nullptr)
+    {
+        xSemaphoreTake(driver_control_mutex, portMAX_DELAY);
+        driver_control.navigation_command_mode = true;
+        driver_control.requested_turn = turn;
+        driver_control.requested_distance = distance;
+        driver_control.requested_speed = clampSpeed(speed);
+        xSemaphoreGive(driver_control_mutex);
+    }
+
     globalVar_set(driver_desired_turn, turn);
     globalVar_set(driver_desired_distance, distance);
-    globalVar_set(driver_desired_speed, speed);
+    globalVar_set(driver_desired_speed, clampSpeed(speed));
 }
 
+void Driver::stop()
+{
+    if (driver_control_mutex != nullptr)
+    {
+        xSemaphoreTake(driver_control_mutex, portMAX_DELAY);
+        driver_control.navigation_command_mode = true;
+        driver_control.requested_turn = 0;
+        driver_control.requested_distance = 0;
+        driver_control.requested_speed = 0;
+        xSemaphoreGive(driver_control_mutex);
+    }
 
-void Driver::driverTask(void *pvParameters) {
-    DriverRuntimeState state = DRIVER_IDLE;
-    TickType_t state_started_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    int blocked_cycles = 0;
-    int clear_cycles = 0;
-    int recovery_turn_bias = TURN_RIGHT;
-    int32_t forward_heading_target_deg10 = globalVar_get(calcHeading);
-    int32_t committed_turn_bias = TURN_NEUTRAL;
-    TickType_t committed_turn_started_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    TickType_t forward_started_ms = 0;
-    TickType_t reverse_started_ms = 0;
-    TickType_t forward_reestablished_ms = 0;
+    globalVar_set(driver_desired_turn, 0);
+    globalVar_set(driver_desired_distance, 0);
+    globalVar_set(driver_desired_speed, 0);
+}
 
+void Driver::set_autonomous_enabled(bool enabled)
+{
+    if (driver_control_mutex != nullptr)
+    {
+        xSemaphoreTake(driver_control_mutex, portMAX_DELAY);
+        driver_control.autonomous_enabled = enabled;
+        if (!enabled)
+        {
+            driver_control.requested_speed = 0;
+        }
+        xSemaphoreGive(driver_control_mutex);
+    }
+}
+
+void Driver::driverTask(void *pvParameters)
+{
     (void)pvParameters;
+
+    DriverMode mode = DriverModeNormal;
+    DriverState state = DriverStateIdle;
+    DriverState previous_state = DriverStateIdle;
+    int32_t avoidance_direction = TURN_RIGHT;
+    bool avoidance_committed = false;
+    TickType_t recovery_started_ms = 0;
+    bool forward_turn_boost_active = false;
+    int32_t avoid_reset_clear_cycles = 0;
+    WallSide wall_side = WallNone;
+    int32_t wall_target_cm = 0;
+    int32_t forward_heading_target_deg10 = globalVar_get(calcHeading);
 
     for (;;)
     {
-        const int32_t forward_clear = globalVar_get(fuseForwardClear);
-        const int32_t turn_bias = globalVar_get(fuseTurnBias);
-        const int32_t left_distance_cm = globalVar_get(rawDistLeft);
-        const int32_t right_distance_cm = globalVar_get(rawDistRight);
-        const int32_t rear_distance_cm = globalVar_get(rawDistBack);
-        const int32_t current_heading_deg10 = globalVar_get(calcHeading);
-        const int32_t longitudinal_acc_counts = globalVar_get(cleanedAccX);
-        const bool rear_blocked = rear_distance_cm > 0 && rear_distance_cm < REVERSE_BLOCK_CM;
         const TickType_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        const DriverControlState control = readDriverControl();
+        const int32_t front_cm = globalVar_get(rawDistFront);
+        const int32_t left_cm = globalVar_get(rawDistLeft);
+        const int32_t right_cm = globalVar_get(rawDistRight);
+        const int32_t rear_cm = globalVar_get(rawDistBack);
+        const int32_t lidar_left_mm = globalVar_get(rawLidarFrontLeft);
+        const int32_t lidar_right_mm = globalVar_get(rawLidarFrontRight);
+        const int32_t heading_deg10 = globalVar_get(calcHeading);
+        const int32_t yaw_degps10 = globalVar_get(cleanedGyZ);
+        const int32_t fused_turn_bias = globalVar_get(fuseTurnBias);
+        const int32_t forward_clear = globalVar_get(fuseForwardClear);
 
-        switch (state)
+        const bool rear_blocked = ultrasonicKnown(rear_cm) && rear_cm < REVERSE_BLOCK_CM;
+        const bool hard_front_blocked = frontHardBlocked(front_cm, lidar_left_mm, lidar_right_mm);
+        const bool front_blocked = (forward_clear == FORWARD_BLOCKED) || hard_front_blocked || (forward_clear != FORWARD_CLEAR);
+
+        if (!control.autonomous_enabled)
         {
-        case DRIVER_IDLE:
-            state = DRIVER_FORWARD;
-            blocked_cycles = 0;
-            clear_cycles = 0;
-            forward_heading_target_deg10 = current_heading_deg10;
-            forward_started_ms = now_ms;
-            forward_reestablished_ms = now_ms;
-            break;
+            mode = DriverModeNormal;
+            state = DriverStateIdle;
+            previous_state = DriverStateIdle;
+            drive->driving(0);
+            steer->direction(0);
+            publishDriverCommand(mode, state, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
+            continue;
+        }
 
-        case DRIVER_FORWARD:
-            if (forward_clear == FUSE_FORWARD_CLEAR)
+        const int32_t requested_speed = control.navigation_command_mode ? clampSpeed(control.requested_speed) : 0;
+        const int32_t raw_turn_command = control.navigation_command_mode ? control.requested_turn : fused_turn_bias;
+        int32_t requested_bias = navTurnToBias(raw_turn_command);
+        const bool explicit_sharp_turn = control.navigation_command_mode && (abs(raw_turn_command) > 1);
+
+        if (mode == DriverModeNormal)
+        {
+            if (requested_speed == 0 && control.navigation_command_mode)
             {
-                if (clear_cycles == 0)
-                {
-                    forward_heading_target_deg10 = current_heading_deg10;
-                    if (forward_reestablished_ms == 0)
-                    {
-                        forward_reestablished_ms = now_ms;
-                    }
-                }
-                clear_cycles++;
-                if (committed_turn_bias != TURN_NEUTRAL &&
-                    now_ms - committed_turn_started_ms >= TURN_COMMIT_HOLD_MS &&
-                    now_ms - forward_reestablished_ms >= FORWARD_REESTABLISHED_MS &&
-                    turn_bias == TURN_NEUTRAL)
-                {
-                    committed_turn_bias = TURN_NEUTRAL;
-                }
-
-                const int32_t active_turn_bias =
-                    (committed_turn_bias != TURN_NEUTRAL) ? committed_turn_bias : turn_bias;
-                const int32_t heading_error_deg10 =
-                    wrappedHeadingErrorDeg10(forward_heading_target_deg10, current_heading_deg10);
-                const int32_t heading_correction =
-                    headingHoldSteerCorrection(forward_heading_target_deg10, current_heading_deg10);
-                const int32_t side_center_correction =
-                    (active_turn_bias == TURN_NEUTRAL) ? sideCenterSteerCorrection(left_distance_cm, right_distance_cm) : 0;
-                if (active_turn_bias == TURN_NEUTRAL &&
-                    side_center_correction == 0 &&
-                    abs(heading_error_deg10) >= TRIM_LEARN_HEADING_DEADBAND_DEG10)
-                {
-                    steer->nudgeNeutralTrim(heading_correction / ADAPTIVE_TRIM_DIVISOR);
-                }
-
-                const int32_t steer_command = clampSteerCommand(
-                    commandSteerFromBias(active_turn_bias, FORWARD_STEER_BIAS) +
-                    side_center_correction);
-                const int32_t commanded_speed = maybeApplyLaunchKick(
-                    chooseForwardDriveSpeed(globalVar_get(rawDistFront)),
-                    forward_started_ms,
-                    now_ms,
-                    longitudinal_acc_counts);
-                steer->direction(steer_command);
-                drive->driving(commanded_speed);
-                publishDriverCommand(DRIVER_FORWARD, commanded_speed, steer_command);
-                blocked_cycles = 0;
+                state = DriverStateIdle;
+            }
+            else if (requested_speed < 0)
+            {
+                state = DriverStateReverse;
+            }
+            else if (explicit_sharp_turn && requested_bias == TURN_LEFT)
+            {
+                state = DriverStateForwardLeft;
+            }
+            else if (explicit_sharp_turn && requested_bias == TURN_RIGHT)
+            {
+                state = DriverStateForwardRight;
             }
             else
             {
-                if (now_ms - forward_started_ms < MIN_FORWARD_PULSE_MS)
-                {
-                    const int32_t active_turn_bias =
-                        (committed_turn_bias != TURN_NEUTRAL) ? committed_turn_bias : turn_bias;
-                    const int32_t steer_command = clampSteerCommand(
-                        commandSteerFromBias(active_turn_bias, FORWARD_STEER_BIAS));
-                    const int32_t commanded_speed = maybeApplyLaunchKick(
-                        chooseForwardDriveSpeed(globalVar_get(rawDistFront)),
-                        forward_started_ms,
-                        now_ms,
-                        longitudinal_acc_counts);
-                    steer->direction(steer_command);
-                    drive->driving(commanded_speed);
-                    publishDriverCommand(DRIVER_FORWARD, commanded_speed, steer_command);
-                    break;
-                }
+                state = DriverStateForward;
+            }
 
-                drive->driving(0);
-                steer->direction(0);
-                publishDriverCommand(DRIVER_RECOVER_STOP, 0, 0);
-                clear_cycles = 0;
-                forward_reestablished_ms = 0;
-                if (forward_clear == FUSE_FORWARD_BLOCKED)
+            if (state == DriverStateForward || state == DriverStateForwardLeft || state == DriverStateForwardRight)
+            {
+                if (front_blocked)
                 {
-                    blocked_cycles++;
-                    if (blocked_cycles >= BLOCK_CONFIRM_CYCLES)
+                    mode = DriverModeRecovery;
+                    state = DriverStateReverse;
+                    if (!avoidance_committed)
                     {
-                        if (committed_turn_bias != TURN_NEUTRAL)
-                        {
-                            recovery_turn_bias = committed_turn_bias;
-                        }
-                        else
-                        {
-                            recovery_turn_bias = chooseRecoveryBiasFromSides(
-                                left_distance_cm,
-                                right_distance_cm,
-                                recovery_turn_bias);
-                            committed_turn_bias = recovery_turn_bias;
-                            committed_turn_started_ms = now_ms;
-                        }
-
-                        state = DRIVER_RECOVER_STOP;
-                        state_started_ms = now_ms;
-                        blocked_cycles = 0;
-                        clear_cycles = 0;
-                        forward_reestablished_ms = 0;
+                        avoidance_direction = chooseAvoidanceDirection(left_cm, right_cm, avoidance_direction);
+                        avoidance_committed = true;
                     }
-                }
-                else
-                {
-                    blocked_cycles = 0;
-                }
-            }
-            break;
-
-        case DRIVER_RECOVER_STOP:
-            drive->driving(0);
-            steer->direction(commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-            publishDriverCommand(DRIVER_RECOVER_STOP, 0, commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-            if (now_ms - state_started_ms >= RECOVER_STOP_MS)
-            {
-                state = DRIVER_RECOVER_REVERSE;
-                state_started_ms = now_ms;
-                reverse_started_ms = now_ms;
-            }
-            break;
-
-        case DRIVER_RECOVER_REVERSE:
-            if (rear_blocked)
-            {
-                drive->driving(0);
-                steer->direction(0);
-                publishDriverCommand(DRIVER_RECOVER_PAUSE, 0, 0);
-                state = DRIVER_RECOVER_PAUSE;
-                state_started_ms = now_ms;
-                clear_cycles = 0;
-                forward_reestablished_ms = 0;
-                break;
-            }
-
-            if (now_ms - reverse_started_ms < MIN_REVERSE_PULSE_MS)
-            {
-                const int32_t commanded_speed = maybeApplyLaunchKick(
-                    REVERSE_SPEED,
-                    reverse_started_ms,
-                    now_ms,
-                    longitudinal_acc_counts);
-                drive->driving(commanded_speed);
-                steer->direction(commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-                publishDriverCommand(DRIVER_RECOVER_REVERSE, commanded_speed, commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-                break;
-            }
-
-            drive->driving(REVERSE_SPEED);
-            steer->direction(commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-            publishDriverCommand(DRIVER_RECOVER_REVERSE, REVERSE_SPEED, commandSteerFromBias(recovery_turn_bias, REVERSE_STEER_BIAS));
-            if (now_ms - state_started_ms >= RECOVER_REVERSE_MS)
-            {
-                state = DRIVER_RECOVER_PAUSE;
-                state_started_ms = now_ms;
-            }
-            break;
-
-        case DRIVER_RECOVER_PAUSE:
-            drive->driving(0);
-            steer->direction(0);
-            publishDriverCommand(DRIVER_RECOVER_PAUSE, 0, 0);
-            if (now_ms - state_started_ms >= RECOVER_PAUSE_MS)
-            {
-                if (forward_clear == FUSE_FORWARD_CLEAR)
-                {
-                    clear_cycles++;
-                    if (clear_cycles >= CLEAR_CONFIRM_CYCLES)
+                    else
                     {
-                        state = DRIVER_FORWARD;
-                        state_started_ms = now_ms;
-                        blocked_cycles = 0;
-                        clear_cycles = 0;
-                        forward_heading_target_deg10 = current_heading_deg10;
-                        forward_started_ms = now_ms;
-                        forward_reestablished_ms = now_ms;
+                        avoidance_direction = maybeFlipAvoidanceDirection(avoidance_direction, left_cm, right_cm);
                     }
+                    recovery_started_ms = now_ms;
+                    wall_side = WallNone;
+                    wall_target_cm = 0;
                 }
-                else if (forward_clear == FUSE_FORWARD_BLOCKED)
+                else if (forward_turn_boost_active)
                 {
-                    state = DRIVER_RECOVER_STOP;
-                    state_started_ms = now_ms;
-                    blocked_cycles = 0;
-                    clear_cycles = 0;
-                    forward_reestablished_ms = 0;
+                    state = (avoidance_direction == TURN_LEFT) ? DriverStateForwardLeft : DriverStateForwardRight;
+                    requested_bias = avoidance_direction;
                 }
-                else
-                {
-                    clear_cycles = 0;
-                    forward_reestablished_ms = 0;
-                }
+            }
+        }
+        else
+        {
+            state = DriverStateReverse;
+            if (rear_blocked || (now_ms - recovery_started_ms) >= RECOVERY_REVERSE_MS)
+            {
+                mode = DriverModeNormal;
+                forward_turn_boost_active = true;
+                avoid_reset_clear_cycles = 0;
+                state = (avoidance_direction == TURN_LEFT) ? DriverStateForwardLeft : DriverStateForwardRight;
+                requested_bias = avoidance_direction;
+                forward_heading_target_deg10 = heading_deg10;
+            }
+        }
+
+        if (state != previous_state)
+        {
+            if (state == DriverStateForward)
+            {
+                forward_heading_target_deg10 = heading_deg10;
+                wall_side = WallNone;
+                wall_target_cm = 0;
+            }
+            previous_state = state;
+        }
+
+        int32_t output_speed = 0;
+        int32_t output_steer = 0;
+
+        switch (state)
+        {
+        case DriverStateIdle:
+            output_speed = 0;
+            output_steer = 0;
+            break;
+
+        case DriverStateForward:
+        {
+            output_speed = chooseForwardSpeed(requested_speed, front_cm);
+            const int32_t straight = computeStraightSteer(forward_heading_target_deg10, heading_deg10, yaw_degps10);
+            maybeCaptureWall(left_cm, right_cm, wall_side, wall_target_cm);
+            maybeReleaseWall(left_cm, right_cm, wall_side, wall_target_cm);
+            const int32_t wall = max(-WALL_MAX_STEER, min(WALL_MAX_STEER, wallFollowSteer(left_cm, right_cm, wall_side, wall_target_cm)));
+            const int32_t side_guard = sideGuardSteer(left_cm, right_cm);
+            const int32_t narrow_center = narrowPassageCenterSteer(left_cm, right_cm);
+            const int32_t turn_bias_component =
+                (control.navigation_command_mode && requested_bias != TURN_NEUTRAL) ?
+                biasToForwardSteer(requested_bias, TURN_BIAS_STEER) :
+                0;
+            const int32_t emergency = sideEmergencySteer(left_cm, right_cm);
+            if (wall_side != WallNone)
+            {
+                // Wall-follow state owns steering while active.
+                output_steer = clampSteer(wall + side_guard + narrow_center);
+            }
+            else
+            {
+                output_steer = clampSteer(straight + side_guard + narrow_center + turn_bias_component);
+            }
+            if (emergency != 0)
+            {
+                output_steer = emergency;
             }
             break;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(DRIVER_PERIOD_MS));
+        case DriverStateForwardLeft:
+            output_speed = chooseForwardSpeed(requested_speed, front_cm);
+            output_steer = clampSteer(-TURN_MAX_STEER + computeStraightSteer(forward_heading_target_deg10, heading_deg10, yaw_degps10) / TURN_ASSIST_STEER);
+            break;
+
+        case DriverStateForwardRight:
+            output_speed = chooseForwardSpeed(requested_speed, front_cm);
+            output_steer = clampSteer(TURN_MAX_STEER + computeStraightSteer(forward_heading_target_deg10, heading_deg10, yaw_degps10) / TURN_ASSIST_STEER);
+            break;
+
+        case DriverStateReverse:
+            if (mode == DriverModeRecovery)
+            {
+                output_speed = DEFAULT_REVERSE_SPEED;
+                output_steer = biasToReverseSteer(avoidance_direction, TURN_MAX_STEER);
+            }
+            else
+            {
+                output_speed = requested_speed < 0 ? requested_speed : DEFAULT_REVERSE_SPEED;
+                const int32_t reverse_bias = (requested_bias != TURN_NEUTRAL) ? requested_bias : avoidance_direction;
+                output_steer = biasToReverseSteer(reverse_bias, TURN_MAX_STEER);
+            }
+
+            if (rear_blocked)
+            {
+                output_speed = 0;
+                output_steer = 0;
+            }
+            break;
+        }
+
+        output_speed = clampSpeed(output_speed);
+        output_steer = clampSteer(output_steer);
+
+        if (mode == DriverModeNormal &&
+            (state == DriverStateForward || state == DriverStateForwardLeft || state == DriverStateForwardRight))
+        {
+            const int32_t turning_corner_lidar_mm =
+                turningCornerLidarMmForDirection(avoidance_direction, lidar_left_mm, lidar_right_mm);
+            const bool turning_corner_open =
+                lidarKnown(turning_corner_lidar_mm) && turning_corner_lidar_mm >= AVOID_RESET_FRONT_CORNER_MM;
+            if (forward_turn_boost_active && turning_corner_open)
+            {
+                avoid_reset_clear_cycles++;
+                if (avoid_reset_clear_cycles >= AVOID_RESET_CLEAR_CYCLES)
+                {
+                    forward_turn_boost_active = false;
+                    avoidance_committed = false;
+                    avoid_reset_clear_cycles = 0;
+                }
+            }
+            else if (forward_turn_boost_active)
+            {
+                avoid_reset_clear_cycles = 0;
+            }
+        }
+
+        drive->driving(output_speed);
+        steer->direction(output_steer);
+        publishDriverCommand(mode, state, output_speed, output_steer);
+
+        vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
     }
 }

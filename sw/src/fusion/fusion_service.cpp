@@ -11,8 +11,8 @@ static constexpr int32_t FUSE_HEADING_CORRECTION_MAX_TURNING_DEG10 = 8;
 static constexpr int32_t FUSE_HEADING_CORRECTION_DIVISOR_STILL = 6;
 static constexpr int32_t FUSE_HEADING_CORRECTION_DIVISOR_TURNING = 18;
 static constexpr int32_t FUSE_HEADING_TURNING_GYRO_THRESHOLD_DPS10 = 120;
-static constexpr TickType_t FUSION_FAST_PERIOD_MS = 100;
-static constexpr TickType_t FUSION_SLOW_PERIOD_MS = 100;
+static constexpr TickType_t FUSION_FAST_PERIOD_MS = 20;
+static constexpr TickType_t FUSION_SLOW_PERIOD_MS = 50;
 
 namespace
 {
@@ -59,13 +59,33 @@ static void fusionSlowTask(void *pvParameters)
     {
         const int32_t gyroHeadingDeg10 = wrapHeadingDeg10(globalVar_get(calcHeading));
         const int32_t magHeadingDeg10 = wrapHeadingDeg10(globalVar_get(calculatedMagCourse));
+        const bool gy271Present = globalVar_get(configGy271Present) != 0;
+        const bool magHeadingValid = globalVar_get(configMagHeadingValid) != 0;
         const bool magDisturbed = globalVar_get(calculatedMagDisturbance) != 0;
         const int32_t yawRateDegPs10 = abs(globalVar_get(cleanedGyZ));
 
         if (!fusedInitialized)
         {
-            fusedHeadingDeg10 = magDisturbed ? gyroHeadingDeg10 : magHeadingDeg10;
-            fusedInitialized = true;
+            // Never let the published fused heading freeze at startup zero while
+            // waiting for the first real magnetic heading sample. Follow the
+            // gyro immediately, then snap in the absolute magnetic reference as
+            // soon as the magnetometer has published a real course.
+            fusedHeadingDeg10 = gyroHeadingDeg10;
+            if (gy271Present)
+            {
+                if (magHeadingValid)
+                {
+                    fusedHeadingDeg10 = magHeadingDeg10;
+                    fusedInitialized = true;
+                    globalVar_set(configHeadingReady, 1);
+                }
+            }
+            else
+            {
+                fusedHeadingDeg10 = gyroHeadingDeg10;
+                fusedInitialized = true;
+                globalVar_set(configHeadingReady, 1);
+            }
         }
         else
         {
@@ -73,7 +93,7 @@ static void fusionSlowTask(void *pvParameters)
             fusedHeadingDeg10 = wrapHeadingDeg10(fusedHeadingDeg10 + wrappedHeadingErrorDeg10(gyroHeadingDeg10, lastGyroHeadingDeg10));
         }
 
-        if (!magDisturbed)
+        if (fusedInitialized && !magDisturbed)
         {
             const int32_t headingErrorDeg10 = wrappedHeadingErrorDeg10(magHeadingDeg10, fusedHeadingDeg10);
             const bool turningQuickly = yawRateDegPs10 > FUSE_HEADING_TURNING_GYRO_THRESHOLD_DPS10;
@@ -98,6 +118,11 @@ void FusionService::Begin()
     globalVar_set(fuseForwardClear, FUSE_FORWARD_UNKNOWN);
     globalVar_set(fuseTurnBias, FUSE_TURN_NEUTRAL);
     globalVar_set(fuseHeadingDeg10, wrapHeadingDeg10(globalVar_get(calcHeading)));
+    if (globalVar_get(configGy271Present) == 0)
+    {
+        globalVar_set(configMagHeadingValid, 1);
+    }
+    globalVar_set(configHeadingReady, 0);
 
     xTaskCreate(
         fusionFastTask,

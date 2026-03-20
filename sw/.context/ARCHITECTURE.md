@@ -87,8 +87,8 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
 - For the current motion stack, `calcHeading`, `calcSpeed`, and `calcDistance` remain valid members of the `calculated*` layer because they are still single-chain inertial estimates. Later planner-facing motion state should move into `fuseHeadingDeg10`, `fuseSpeedMmPs`, and `fusePosePacked` rather than overloading the current `calc*` names.
 - Fusion now lives under one `src/fusion` package rather than being split into separate package owners too early.
 - `src/fusion/fusion_service.cpp` owns two cadences:
-  - a fast fusion task, currently `10 Hz`, for near-term clearance gating
-  - a slow fusion task, currently `10 Hz`, now used for heading fusion and still serving as the home for later pose and map fusion
+  - a fast fusion task, currently `50 Hz`, for near-term clearance gating
+  - a slow fusion task, currently `20 Hz`, now used for heading fusion and still serving as the home for later pose and map fusion
 - Helper files under the same package hold narrow rule logic without owning task lifecycle themselves.
 - The live `fused*` implementation now exists:
   - `fuseForwardClear` is published by the fast fusion task in `src/fusion/fusion_service.cpp`
@@ -190,7 +190,20 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
   - projects the front `VL53L0X` pair and ultrasonic data into an observed occupancy grid
   - marks visited cells
   - searches reachable frontier cells
+  - issues high-level movement intent for exploration
   - drives until no reachable frontier remains, then stops
+- Control ownership is now split explicitly:
+  - `ObservedExplorerService` decides exploration intent (frontier bias plus forward drive demand)
+  - `Driver` owns autonomous steering-plus-motor execution policy
+  - `Driver` now uses an explicit control model with `mode` (`normal`, `recovery`) and `state` (`idle`, `forward`, `reverse`, `forward_left`, `forward_right`)
+  - `Driver` applies dynamic straight-course heading correction and near-wall side-distance hold behavior in straight `forward` state
+  - max steering is allowed in explicit turning states (`forward_left`, `forward_right`) for both avoidance and planner/user-requested sharp turns
+  - avoidance remains highest priority over commanded course intent
+  - steering-sign invariant:
+    - yaw intent is expressed in world-frame left or right turn bias
+    - forward motion uses same-sign steering for the requested yaw intent
+    - reverse motion must use opposite-sign steering for the same yaw intent
+    - this mapping is mandatory in recovery logic so back-and-forth escape sequences do not cancel yaw progress
 - The active PAT004 front `VL53L0X` pair remains:
   - forward-facing
   - `105 mm` center-to-center spacing
@@ -214,6 +227,7 @@ This repository is a PlatformIO-based ESP32 Arduino firmware project for small m
     - gyro provides the short-term turn delta
     - GY-271 magnetic course provides long-term reference when not disturbed
     - later map alignment is still expected to refine heading further
+  - when the GY-271 is present, the runtime now waits for a real magnetic heading sample before exploration starts, so the map does not begin from a false zero heading
 - The current exploration runtime is still an early autonomous baseline, not a finished navigation stack. It does not yet load a real programmed map, perform robust pose alignment, or do full route planning.
 
 ## Open Questions

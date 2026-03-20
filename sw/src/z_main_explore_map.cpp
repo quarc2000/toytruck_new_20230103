@@ -22,6 +22,11 @@ ObservedExplorerService observedExplorer;
 LightService lightService;
 ExploreWebServerService webServer;
 
+namespace
+{
+constexpr TickType_t HEADING_READY_POLL_MS = 50;
+}
+
 static String chipIdString()
 {
     const uint64_t chipId = ESP.getEfuseMac();
@@ -64,6 +69,23 @@ void setup()
     vTaskDelay(pdMS_TO_TICKS(100));
     fusionService.Begin();
     vTaskDelay(pdMS_TO_TICKS(100));
+    if (globalVar_get(configGy271Present) != 0)
+    {
+        basic_log_info("Waiting for startup magnetic heading");
+        while (globalVar_get(configHeadingReady) == 0 &&
+               globalVar_get(configGy271Present) != 0)
+        {
+            vTaskDelay(pdMS_TO_TICKS(HEADING_READY_POLL_MS));
+        }
+        if (globalVar_get(configHeadingReady) != 0)
+        {
+            basic_log_info("Startup magnetic heading accepted");
+        }
+        else
+        {
+            basic_log_warn("GY-271 startup heading unavailable, continuing without magnetic startup lock");
+        }
+    }
     observedExplorer.Begin();
     vTaskDelay(pdMS_TO_TICKS(100));
     lightService.Begin();

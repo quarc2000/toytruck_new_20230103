@@ -19,6 +19,8 @@ typedef enum {
     configExpanderPresent, // Boolean: 1 if the I2C mux/expander path is present, else 0.
     configGy271Present,    // Boolean: 1 if the GY-271 magnetometer path is present, else 0.
     configFrontLidarPresent, // Boolean: 1 if the front VL53L0X path is present, else 0.
+    configMagHeadingValid, // Boolean: 1 after the first real magnetic heading sample has been accepted, else 0.
+    configHeadingReady, // Boolean: 1 if the runtime has a trustworthy startup heading reference, else 0.
     rawDistLeft,    // Left ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistFront,   // Front ultrasonic distance in cm. 199 is also timeout/out-of-range.
     rawDistRight,   // Right ultrasonic distance in cm. 199 is also timeout/out-of-range.
